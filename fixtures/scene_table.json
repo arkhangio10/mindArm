@@ -1,0 +1,7 @@
+{
+  "objects": [
+    {"label": "cup", "x": 0.25, "y": 0.55, "confidence": 0.98},
+    {"label": "bottle", "x": 0.55, "y": 0.40, "confidence": 0.96},
+    {"label": "sports ball", "x": 0.80, "y": 0.65, "confidence": 0.94}
+  ]
+}

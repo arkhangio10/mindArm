@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mindarm"
+version = "0.1.0"
+description = "Brain-controlled through intent selection: a hardware-free walking skeleton"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+dependencies = [
+  "openai>=1.30,<3",
+  "pydantic>=2.7,<3",
+  "numpy>=1.24,<3",
+  "PyYAML>=6,<7",
+  "python-dotenv>=1,<2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<10"]
+
+[project.scripts]
+mindarm = "mindarm.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-m 'not integration'"
+markers = ["integration: opt-in live Nebius API test (requires NEBIUS_API_KEY)"]

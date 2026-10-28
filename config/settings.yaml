@@ -1,0 +1,25 @@
+eeg: fake
+decoder: keyboard
+perception: fake
+planner: nemotron
+arm: simulated
+
+# Relative paths resolve from this file's parent directory.
+scene_path: ../fixtures/scene_table.json
+joint_limits_path: joint_limits.yaml
+replay_path: ../recordings/example.npz
+logs_dir: ../logs
+recordings_dir: ../recordings
+
+sample_rate: 250.0
+n_channels: 1
+frequency: 12.0
+noise_std: 0.2
+alpha_bursts: false
+seed: 7
+replay_loop: true
+record_eeg: true
+eeg_chunk_samples: 25
+poll_interval: 0.02
+planner_timeout: 30.0
+planner_max_tokens: 4096

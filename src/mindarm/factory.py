@@ -1,0 +1,44 @@
+"""Construct protocol implementations from validated configuration."""
+
+from dataclasses import dataclass
+
+from mindarm.arm.simulated import SimulatedArm
+from mindarm.config import Settings
+from mindarm.decoder.keyboard import KeyboardDecoder
+from mindarm.eeg.fake import FakeEEGSource
+from mindarm.eeg.replay import ReplayEEGSource
+from mindarm.interfaces import ArmController, Decoder, EEGSource, Perception, Planner
+from mindarm.perception.fake import FakePerception
+from mindarm.planner.fake import FakePlanner
+from mindarm.planner.nemotron import NemotronPlanner
+from mindarm.session_log import SessionLog
+
+
+@dataclass
+class Components:
+    """A swappable set of implementations exposed only through their contracts."""
+
+    eeg: EEGSource
+    decoder: Decoder
+    perception: Perception
+    planner: Planner
+    arm: ArmController
+
+    def close(self) -> None:
+        """Release input adapter resources."""
+        if isinstance(self.decoder, KeyboardDecoder):
+            self.decoder.close()
+
+
+def create_components(settings: Settings, log: SessionLog) -> Components:
+    """Select each implementation; initialize keyboard only after fallible setup."""
+    planner: Planner = (FakePlanner() if settings.planner == "fake" else NemotronPlanner(
+        timeout=settings.planner_timeout, max_tokens=settings.planner_max_tokens, record=log.write))
+    eeg: EEGSource = (ReplayEEGSource(settings.replay_path, loop=settings.replay_loop)
+                     if settings.eeg == "replay" else FakeEEGSource(
+                         settings.sample_rate, settings.n_channels, settings.frequency,
+                         settings.noise_std, settings.alpha_bursts, settings.seed))
+    perception = FakePerception(settings.scene_path)
+    perception.detect()  # Fail before entering terminal input mode for an invalid fixture.
+    arm = SimulatedArm.from_file(settings.joint_limits_path)
+    return Components(eeg, KeyboardDecoder(), perception, planner, arm)

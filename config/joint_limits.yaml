@@ -1,0 +1,21 @@
+# Degrees and degrees/second; simulation constants, not hardware calibration.
+joints:
+  base: {min_angle: 0.0, max_angle: 180.0, max_speed: 60.0}
+  shoulder: {min_angle: 20.0, max_angle: 160.0, max_speed: 45.0}
+  elbow: {min_angle: 20.0, max_angle: 160.0, max_speed: 45.0}
+  wrist_pitch: {min_angle: 0.0, max_angle: 180.0, max_speed: 60.0}
+  wrist_roll: {min_angle: 0.0, max_angle: 180.0, max_speed: 60.0}
+  gripper: {min_angle: 0.0, max_angle: 90.0, max_speed: 45.0}
+
+poses:
+  home: {base: 90.0, shoulder: 90.0, elbow: 90.0, wrist_pitch: 90.0, wrist_roll: 90.0, gripper: 0.0}
+  handover: {base: 90.0, shoulder: 65.0, elbow: 110.0, wrist_pitch: 90.0, wrist_roll: 90.0, gripper: 60.0}
+
+primitive_targets:
+  MOVE_ABOVE: {base: 100.0, shoulder: 75.0, elbow: 105.0}
+  GRASP: {gripper: 60.0}
+  LIFT: {shoulder: 60.0, elbow: 100.0}
+  RELEASE: {gripper: 0.0}
+
+# Virtual duration used to check speed. No real motors or wall-clock movement.
+primitive_duration_s: 2.0
