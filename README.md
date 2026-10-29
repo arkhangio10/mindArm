@@ -15,15 +15,19 @@ Demo video: [VIDEO LINK]
 
 ## The problem
 
-People with severe motor impairments often cannot use a joystick or a touchscreen, and
-non-invasive brain-computer interfaces give them only a few reliable choices at a time. Asking
-that channel to steer six joints in real time is slow and exhausting.
+People living with ALS, high spinal cord injury, or locked-in syndrome often cannot use a
+joystick or a touchscreen. Non-invasive brain-computer interfaces give them only a few reliable
+choices at a time. Asking that narrow channel to steer six joints in real time is slow and
+exhausting.
 
 MindArm changes what the brain has to do: **choose the goal, not the joints**. The user picks
 one of four options, such as "Pick up the bottle". Nemotron turns that choice into a short
 plan from a closed vocabulary of motion primitives, and the arm executes it within limits it
 enforces itself. Four options match the kind of low-bandwidth signal a visual BCI can provide:
 the interface will present them as tiles flickering at 8.57, 10, 12, and 15 Hz (SSVEP).
+
+There is no clinical validation. Testing with the people this is meant for is a next step,
+not a claim.
 
 ## How it works
 
@@ -36,6 +40,12 @@ flowchart LR
     G -- "valid plan" --> J["Jetson Nano service<br/>SSH stdio · hard envelope"]
     J --> A["PCA9685<br/>6 servos"]
 ```
+
+**The cloud reasons, the edge enforces.** Nemotron 3 Super (120B parameters) runs on Nebius
+Token Factory. The Jetson Nano (4 GB, JetPack 4.6) does not host it. It does what an edge
+device can guarantee locally: deterministic, rate-limited servo control and an independent
+safety envelope that holds even if the laptop or the model misbehaves. The laptop orchestrates
+the two.
 
 1. **Engage** (key `e`). MindArm reads the scene; today it comes from a fixture of the
    objects on the table.
@@ -60,16 +70,24 @@ flowchart LR
   exactly one repair attempt that includes the validation error. A second failure falls back
   to safe resting options or `[HOME]`. SDK retries are disabled, so an operation makes at most
   two calls. Every call is logged with latency and token usage.
-- **Measured live on 2026-10-28** (details in `docs/SPEC.md`):
+- **Benchmarked live on 2026-10-29**: 10 proposals and 10 plans through the real planner
+  (details in `docs/SPEC.md`).
 
-| Operation | Latency | Tokens (prompt / completion) | Note |
-| --- | --- | --- | --- |
-| propose_options | 2.0–3.7 s | 451 / 373–405 | 432 prompt tokens served from cache |
-| plan_motion | 1.3–3.0 s | 607–614 / 181–423 | |
-| plan_motion, repair | +2.0 s | 779 / 368 | The model put `object_label` on GRASP and LIFT; the gate rejected it and the repair was valid |
+| Operation | p50 | p95 | Valid on first try | Repaired by the gate's one repair prompt | Fallbacks | Cost for 10 |
+| --- | --- | --- | --- | --- | --- | --- |
+| propose_options | 2.35 s | 3.33 s | 10/10 | 0 | 0 | $0.0047 |
+| plan_motion | 2.53 s | 4.73 s | 7/10 | 3 | 0 | $0.0068 |
 
-  At the listed prices ($0.30 per million input tokens, $0.90 per million output tokens), a
-  full cycle costs about a tenth of a cent.
+  - **The safety gate catches real model mistakes.** Three of ten plans were rejected on the
+    first try and fixed by one repair prompt, so all ten were valid in the end. In an earlier
+    live session, the rejected plan had put `object_label` on GRASP and LIFT.
+  - Every pickup plan used all five primitives, ending in a handover and release.
+  - One full cycle costs about **$0.0011** at the listed $0.30 / $0.90 per million input and
+    output tokens.
+  - Token Factory served 67% of the prompt tokens from its cache.
+- **Why Nemotron 3 Super:** planning a pick needs dependable structured reasoning at
+  interactive speed. Super measured 2.35 s p50 for proposals with 10/10 valid JSON. Nano and
+  Ultra have not been benchmarked on this task yet.
 - **Measured experiments, not yet in the default loop:**
   - Disabling reasoning (`chat_template_kwargs: {"enable_thinking": false}`) cut proposals to
     0.6–1.4 s, and all three were still valid. Plans without reasoning were invalid half the
@@ -168,16 +186,17 @@ scene-aware options from Nemotron instead of three fixed actions.
 
 What worked well:
 
-- The OpenAI-compatible API meant no new client code, and JSON mode plus Nemotron 3 Super gave
-  valid structured output on most first attempts; the one invalid plan in the live session was
-  fixed by a single repair prompt.
-- Latency and price fit an interactive loop: a full cycle costs about a tenth of a cent.
-- Prompt caching applied automatically to the repeated prompt prefix (432 of 451 tokens).
+- The OpenAI-compatible API meant no new client code. With JSON mode, Nemotron 3 Super gave
+  valid output on the first try for 10/10 proposals and 7/10 plans, and a single repair prompt
+  fixed the other three.
+- Latency and price fit an interactive loop: 2.35 s p50 per proposal, and about $0.0011 for a
+  full cycle.
+- Prompt caching applied automatically: 67% of our prompt tokens were served from cache.
 
 What slowed us down:
 
 - **Billing country:** Peru is not in the billing "Country of residence" list, which blocks
-  onboarding and API key creation for participants there until support steps in.
+  onboarding and API key creation for participants there.
 - **Two endpoints, two catalogs:** `api.tokenfactory.us-central1.nebius.com` listed 18 models
   and `api.tokenfactory.nebius.com` listed 30. Nemotron 3.5 Super VL appeared only on the
   second. The documentation and the cookbook use different endpoints.
@@ -195,6 +214,9 @@ What slowed us down:
 3. Reasoning off for proposals, on for plans.
 4. Galvanic isolation for the EEG front end, then SSVEP and alpha decoding from recordings.
 5. Stable object IDs, so two objects with the same label can be told apart.
+6. Batch evaluation of the planner over recorded scenes as a Nebius Serverless Job, tracking
+   validity, latency, and cost per model.
+7. Sessions with people who live with motor impairments, to shape the options and the pace.
 
 ## License
 

@@ -476,6 +476,36 @@ release; that is valid within the vocabulary. The third proposal's description c
 U+2011. Before the console fix above, that character ended the cycle with an encoding error
 when output was redirected; the error path homed and disengaged as specified.
 
+Planner benchmark (2026-10-29): `NemotronPlanner` with the defaults (temperature 0.1, JSON
+mode, 4096 tokens, reasoning on) against the fixture scene. It ran 10 proposals and 10 plans,
+cycling the goals Pick up cup, Pick up bottle, Pick up sports ball, and Home. Latency includes
+the repair call.
+
+| Operation | p50 | p95 | Range | Valid on first try | Repaired | Fallback | Prompt tokens (cached) / completion | Cost |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| propose_options | 2.35 s | 3.33 s | 1.54–3.71 s | 10/10 | 0 | 0 | 4510 (3024) / 3704 | $0.0047 |
+| plan_motion | 2.53 s | 4.73 s | 1.13–5.05 s | 7/10 | 3 | 0 | 8482 (2960) / 4688 | $0.0068 |
+
+- Every pickup plan had all five primitives (MOVE_ABOVE, GRASP, LIFT, MOVE_TO_POSE handover,
+  RELEASE). Home returned `[HOME]`. There were no API errors.
+- The run did not record why the three repaired plans were rejected.
+- At $0.30/$0.90 per million input/output tokens, without a discount for cached input, one
+  proposal plus one plan costs about $0.0011.
+
+Reasoning off (same day, 3 calls per operation), with
+`chat_template_kwargs: {"enable_thinking": false}`:
+
+- Proposals took 0.6–1.4 s and all were valid.
+- Plans took 0.4–0.8 s, and one of the two was invalid.
+- It is not enabled in the default loop.
+
+Nemotron 3.5 Super VL probe (same day, `api.tokenfactory.nebius.com`, which lists the model;
+the `us-central1` endpoint does not). One synthetic 320×240 image, JSON mode, reasoning off:
+
+- It answered in 2.2 s.
+- The output validated as `Scene`, with object centers within 0.02 of the truth.
+- It is not wired into perception.
+
 ## Open risks
 
 1. **Deployment Python:** Jetson Nano on JetPack 4.6 ships Python 3.6; this project requires
