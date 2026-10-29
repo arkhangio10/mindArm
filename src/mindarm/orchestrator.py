@@ -82,11 +82,16 @@ class Orchestrator:
 
     def _disengage(self, reason: str, error: Exception | None = None) -> None:
         self._future = None  # A stale worker can finish, but its result can never execute.
+        executing = self.state == State.EXECUTING
         # Recovery must happen even if the output stream or logger has failed.
         self.state = State.IDLE
         recovery: ExecutionResult | None = None
         recovery_error: str | None = None
         try:
+            if executing and self._worker is not None and self._worker.is_alive():
+                # Stop the in-flight primitive and wait for it, so arm execution stays serialized.
+                self.arm.cancel()
+                self._worker.join()
             recovery = self.arm.execute(home_plan())
             if not recovery.success:
                 recovery_error = recovery.error or "Arm rejected HOME"
@@ -164,7 +169,13 @@ class Orchestrator:
     def _execute(self) -> None:
         assert self._plan is not None and self._cycle is not None
         primitive = self._plan.primitives[self._executed]
-        result = self.arm.execute(MotionPlan(primitives=[primitive]))
+        if self._future is None:
+            self._submit(lambda: self.arm.execute(MotionPlan(primitives=[primitive])))
+            return
+        if not self._future.done():
+            return
+        result: ExecutionResult = self._future.result()
+        self._future = None
         self._cycle["latencies"]["execute_ms"] = (time.perf_counter() - self._execution_start) * 1000
         self._cycle["result"] = result.model_dump(mode="json")
         self._cycle["result"]["executed_primitives"] = self._executed + result.executed_primitives

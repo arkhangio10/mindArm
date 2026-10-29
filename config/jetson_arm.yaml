@@ -1,0 +1,26 @@
+# Real arm: PWM pulse widths in microseconds (us) and us/second, despite the *_angle names.
+# Limits are the 2026-10-11 calibration; 1000/2000 on base, shoulder, elbow, and wrist_roll are
+# the bring-up script's clamp, not physical stops. The Jetson service enforces the same envelope.
+joints:
+  base: {min_angle: 1000, max_angle: 2000, max_speed: 400}
+  shoulder: {min_angle: 1000, max_angle: 2000, max_speed: 300}
+  elbow: {min_angle: 1000, max_angle: 2000, max_speed: 400}
+  wrist_pitch: {min_angle: 1180, max_angle: 1980, max_speed: 500}
+  wrist_roll: {min_angle: 1000, max_angle: 2000, max_speed: 500}
+  gripper: {min_angle: 1130, max_angle: 1950, max_speed: 600}
+
+# HOME is the calibration rest vector (gripper half-open). The other targets were taught on
+# 2026-10-28 with python -m mindarm.teach for a sponge at a taped pick spot: MOVE_ABOVE opens
+# around it, GRASP squeezes, LIFT raises ~5 cm, handover swings to base 1000, RELEASE drops it.
+poses:
+  home: {base: 1500, shoulder: 1450, elbow: 1500, wrist_pitch: 1600, wrist_roll: 1500, gripper: 1500}
+  handover: {base: 1000, shoulder: 1430, elbow: 1800, wrist_pitch: 1200, wrist_roll: 1010, gripper: 1150}
+
+primitive_targets:
+  MOVE_ABOVE: {base: 1600, shoulder: 1230, elbow: 2000, wrist_pitch: 1400, wrist_roll: 1010, gripper: 1900}
+  GRASP: {gripper: 1150}
+  LIFT: {base: 1600, shoulder: 1380, elbow: 2000, wrist_pitch: 1250, wrist_roll: 1010}
+  RELEASE: {gripper: 1900}
+
+# Real ramp duration per primitive; HOME may take longer to respect max_speed.
+primitive_duration_s: 1.5

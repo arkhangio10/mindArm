@@ -16,9 +16,11 @@ class Settings(BaseModel):
     decoder: Literal["keyboard"] = "keyboard"
     perception: Literal["fake"] = "fake"
     planner: Literal["nemotron", "fake"] = "nemotron"
-    arm: Literal["simulated"] = "simulated"
+    arm: Literal["simulated", "jetson"] = "simulated"
     scene_path: Path
     joint_limits_path: Path
+    jetson_arm_path: Path
+    jetson_command: list[str] = Field(min_length=1)
     replay_path: Path
     logs_dir: Path
     recordings_dir: Path
@@ -46,7 +48,7 @@ def load_settings(path: Path) -> Settings:
     path = path.resolve()
     data = yaml.safe_load(path.read_text(encoding="utf-8"))
     settings = Settings.model_validate(data)
-    for field in ("scene_path", "joint_limits_path", "replay_path", "logs_dir", "recordings_dir"):
+    for field in ("scene_path", "joint_limits_path", "jetson_arm_path", "replay_path", "logs_dir", "recordings_dir"):
         value = getattr(settings, field)
         setattr(settings, field, (path.parent / value).resolve())
     return settings

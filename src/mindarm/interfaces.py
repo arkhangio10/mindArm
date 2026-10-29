@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal, Protocol, runtime_checkable
+from typing import Any, Literal, Protocol, runtime_checkable
 
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -146,8 +146,21 @@ class Planner(Protocol):
 
 @runtime_checkable
 class ArmController(Protocol):
-    """Enforce local joint/speed limits; expose angles in degrees."""
+    """Enforce local joint/speed limits in the arm's unit; execute() may block, cancel() must not."""
 
     def execute(self, plan: MotionPlan) -> ExecutionResult: ...
 
     def state(self) -> dict[str, float]: ...
+
+    def cancel(self) -> None: ...
+
+
+@runtime_checkable
+class ArmTransport(Protocol):
+    """Exchange JSON-line messages with an arm service; receive() returns None on timeout."""
+
+    def send(self, message: dict[str, Any]) -> None: ...
+
+    def receive(self, timeout: float) -> dict[str, Any] | None: ...
+
+    def close(self) -> None: ...

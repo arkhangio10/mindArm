@@ -92,17 +92,24 @@ class SimulatedArm:
             ))
         return target, duration
 
-    def execute(self, plan: MotionPlan) -> ExecutionResult:
+    def _stage(self, plan: MotionPlan) -> list[tuple[MotionPrimitive, dict[str, float], float]]:
         staged: list[tuple[MotionPrimitive, dict[str, float], float]] = []
         current = self.state()
+        # Revalidate even model_construct()/post-validation mutations at this boundary.
+        plan = MotionPlan.model_validate(plan.model_dump())
+        for primitive in plan.primitives:
+            target, duration = self._target(current, primitive)
+            self._check_move(current, target, duration)
+            staged.append((primitive, target, duration))
+            current = target
+        return staged
+
+    def cancel(self) -> None:
+        """Virtual motion is instantaneous, so there is never a move in progress to stop."""
+
+    def execute(self, plan: MotionPlan) -> ExecutionResult:
         try:
-            # Revalidate even model_construct()/post-validation mutations at this boundary.
-            plan = MotionPlan.model_validate(plan.model_dump())
-            for primitive in plan.primitives:
-                target, duration = self._target(current, primitive)
-                self._check_move(current, target, duration)
-                staged.append((primitive, target, duration))
-                current = target
+            staged = self._stage(plan)
         except ValueError as error:
             return ExecutionResult(success=False, executed_primitives=0, joint_angles=self.state(), error=str(error))
         for primitive, target, duration in staged:

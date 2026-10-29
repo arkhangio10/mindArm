@@ -66,7 +66,7 @@ def test_toggle_from_every_state(app: Orchestrator, state: State) -> None:
         send(app, "SELECT", 0)
     if state == State.EXECUTING:
         advance(app, lambda: app.state == State.EXECUTING)
-        app.tick()  # Complete one primitive; cancel before the remaining sequence.
+        app.tick()  # Submit the first primitive; cancel while it may still be in flight.
     assert app.state == state
     send(app, "TOGGLE_ENGAGE")
     assert app.state == (State.PROPOSING if state == State.IDLE else State.IDLE)
@@ -139,6 +139,51 @@ def test_slow_motion_result_is_discarded_after_toggle(app: Orchestrator) -> None
         app.shutdown()
 
 
+def test_disengage_cancels_in_flight_primitive_before_home(app: Orchestrator) -> None:
+    started, cancelled = Event(), Event()
+    arm = app.arm
+
+    class BlockingArm:
+        """Hold a non-HOME primitive like a real ramp until cancel() is called."""
+
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def execute(self, plan: MotionPlan) -> ExecutionResult:
+            action = plan.primitives[0].action
+            self.calls.append(action)
+            if action != "HOME":
+                started.set()
+                assert cancelled.wait(2)
+                return ExecutionResult(success=False, executed_primitives=0,
+                                       joint_angles=arm.state(), error="Stopped before the target")
+            return arm.execute(plan)
+
+        def state(self) -> dict[str, float]:
+            return arm.state()
+
+        def cancel(self) -> None:
+            self.calls.append("cancel")
+            cancelled.set()
+
+    app.arm = BlockingArm()
+    try:
+        engage(app)
+        send(app, "SELECT", 1)
+        advance(app, started.is_set)
+        for _ in range(3):
+            app.tick()  # Input keeps being polled while the primitive is in flight.
+        assert app.state == State.EXECUTING
+        send(app, "TOGGLE_ENGAGE")
+        assert app.state == State.IDLE
+        assert app.arm.calls == ["MOVE_ABOVE", "cancel", "HOME"]
+        assert not app._worker.is_alive()
+        assert app.completed_cycles == 0 and app.last_error is None
+    finally:
+        cancelled.set()
+        app.shutdown()
+
+
 @pytest.mark.parametrize("phase", ["perception", "options", "plan", "eeg", "arm"])
 def test_errors_home_idle_and_log(app: Orchestrator, monkeypatch: pytest.MonkeyPatch, phase: str) -> None:
     def fail(*args: object) -> None:
@@ -199,8 +244,7 @@ def test_failed_console_cannot_prevent_home(app: Orchestrator) -> None:
     engage(app)
     send(app, "SELECT", 0)
     advance(app, lambda: app.state == State.EXECUTING)
-    app.tick()
-    assert app.arm.state()["shoulder"] != 90
+    advance(app, lambda: app.arm.state()["shoulder"] != 90)
 
     def broken_output(message: str) -> None:
         raise BrokenPipeError("console closed")

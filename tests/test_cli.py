@@ -29,11 +29,16 @@ def test_cli_help() -> None:
 
 
 def test_cli_full_offline_cycle(settings: Settings, tmp_path: Path) -> None:
+    # Option text can hold characters a redirected console's encoding cannot represent (seen live: U+2011).
+    scene = json.loads(settings.scene_path.read_text(encoding="utf-8"))
+    scene["objects"][0]["label"] = "cup ‑ blue"
+    settings.scene_path = tmp_path / "scene.json"
+    settings.scene_path.write_text(json.dumps(scene), encoding="utf-8")
     path = tmp_path / "settings.yaml"
     path.write_text(yaml.safe_dump(settings.model_dump(mode="json")), encoding="utf-8")
     process = subprocess.Popen([sys.executable, "-m", "mindarm", "--config", str(path), "--once"],
                                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                               text=True, env=environment(), cwd=tmp_path)
+                               text=True, env={**environment(), "PYTHONIOENCODING": "cp1252"}, cwd=tmp_path)
     lines: Queue[str] = Queue()
     output: list[str] = []
 

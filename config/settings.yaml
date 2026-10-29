@@ -7,6 +7,7 @@ arm: simulated
 # Relative paths resolve from this file's parent directory.
 scene_path: ../fixtures/scene_table.json
 joint_limits_path: joint_limits.yaml
+jetson_arm_path: jetson_arm.yaml
 replay_path: ../recordings/example.npz
 logs_dir: ../logs
 recordings_dir: ../recordings
@@ -23,3 +24,17 @@ eeg_chunk_samples: 25
 poll_interval: 0.02
 planner_timeout: 30.0
 planner_max_tokens: 4096
+
+# arm: jetson starts the arm service over SSH stdio (no port forwarding). Windows' OpenSSH is
+# named explicitly: the Git ssh found first on PATH fails over the Jetson's USB network link.
+jetson_command:
+  - C:/Windows/System32/OpenSSH/ssh.exe
+  - -T
+  - -o
+  - BatchMode=yes
+  - -o
+  - ServerAliveInterval=2
+  - -o
+  - ServerAliveCountMax=3
+  - jetson-usb
+  - python3 -u ~/mindarm_arm.py

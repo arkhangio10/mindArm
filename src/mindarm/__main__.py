@@ -22,6 +22,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--planner", choices=("fake", "nemotron"), help="Override the configured planner")
     parser.add_argument("--once", action="store_true", help="Exit after one completed or failed cycle")
     args = parser.parse_args(argv)
+    # Model text may hold characters a redirected console's encoding (e.g. cp1252) cannot represent.
+    for stream in (sys.stdout, sys.stderr):
+        stream.reconfigure(errors="replace")
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     components: Components | None = None
     log: SessionLog | None = None

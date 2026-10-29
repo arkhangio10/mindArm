@@ -2,7 +2,10 @@
 
 from dataclasses import dataclass
 
-from mindarm.arm.simulated import SimulatedArm
+import yaml
+
+from mindarm.arm.jetson import JetsonArm, SshTransport
+from mindarm.arm.simulated import ArmSettings, SimulatedArm
 from mindarm.config import Settings
 from mindarm.decoder.keyboard import KeyboardDecoder
 from mindarm.eeg.fake import FakeEEGSource
@@ -25,9 +28,11 @@ class Components:
     arm: ArmController
 
     def close(self) -> None:
-        """Release input adapter resources."""
+        """Release input adapter and arm link resources."""
         if isinstance(self.decoder, KeyboardDecoder):
             self.decoder.close()
+        if isinstance(self.arm, JetsonArm):
+            self.arm.close()
 
 
 def create_components(settings: Settings, log: SessionLog) -> Components:
@@ -40,5 +45,11 @@ def create_components(settings: Settings, log: SessionLog) -> Components:
                          settings.noise_std, settings.alpha_bursts, settings.seed))
     perception = FakePerception(settings.scene_path)
     perception.detect()  # Fail before entering terminal input mode for an invalid fixture.
-    arm = SimulatedArm.from_file(settings.joint_limits_path)
+    arm: ArmController
+    if settings.arm == "jetson":
+        # Validate the configuration before the SSH session can energize anything.
+        arm_settings = ArmSettings.model_validate(yaml.safe_load(settings.jetson_arm_path.read_text(encoding="utf-8")))
+        arm = JetsonArm(arm_settings, SshTransport(settings.jetson_command))
+    else:
+        arm = SimulatedArm.from_file(settings.joint_limits_path)
     return Components(eeg, KeyboardDecoder(), perception, planner, arm)
