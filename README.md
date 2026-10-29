@@ -1,158 +1,200 @@
 # MindArm
 
-## Overview
+**A low-cost assistive arm, brain-controlled through intent selection: you choose the goal,
+NVIDIA Nemotron plans it, and a 3D-printed arm on a Jetson Nano carries it out within
+hard safety limits.**
 
-MindArm explores a low-cost assistive arm that is **brain-controlled through intent selection**.
-It is a solo entry for the Nebius x NVIDIA Global AI Hackathon, Physical AI Track,
-with a project deadline of October 30, 2026.
+Solo entry for the Nebius x NVIDIA Global AI Hackathon, Physical AI track.
 
-**Step 1 is a hardware-free walking skeleton.** Keyboard input stands in for brain-derived
-intent. Perception, EEG, and the arm are simulated; the default planner calls real NVIDIA
-Nemotron through Nebius Token Factory. This step does not demonstrate real BCI control
-or establish suitability for use by people with motor impairments.
+> **Honest status of this build.** The arm is real and moves through Nemotron-generated,
+> validated plans on a Jetson Nano. Intent selection is a **keyboard-driven simulation**:
+> the EEG hardware is wired and verified, but no decoder turns brain signals into choices
+> yet. This is a supervised tabletop prototype, not a medical or assistive device.
+
+Demo video: [VIDEO LINK]
+
+## The problem
+
+People with severe motor impairments often cannot use a joystick or a touchscreen, and
+non-invasive brain-computer interfaces give them only a few reliable choices at a time. Asking
+that channel to steer six joints in real time is slow and exhausting.
+
+MindArm changes what the brain has to do: **choose the goal, not the joints**. The user picks
+one of four options, such as "Pick up the bottle". Nemotron turns that choice into a short
+plan from a closed vocabulary of motion primitives, and the arm executes it within limits it
+enforces itself. Four options match the kind of low-bandwidth signal a visual BCI can provide:
+the interface will present them as tiles flickering at 8.57, 10, 12, and 15 Hz (SSVEP).
 
 ## How it works
 
-1. Press **e** to engage.
-2. Fixture perception describes a cup, bottle, and sports ball as text.
-3. Nemotron proposes four options, including **Home**.
-4. Press **1-4** to select an option; **2** selects the second displayed option.
-5. Nemotron produces a validated sequence of allowed motion primitives.
-6. The simulated arm enforces local joint/speed limits and logs execution.
-7. A fresh set of options is proposed. Press **e** to return home and disengage, or **q** to return home and quit.
+```mermaid
+flowchart LR
+    I["Intent<br/>4 options<br/>(keyboard-simulated today)"] --> O["MindArm orchestrator<br/>laptop"]
+    O -- "scene + request" --> N["Nemotron 3 Super<br/>Nebius Token Factory"]
+    N -- "options / plan as JSON" --> G{"Safety gate<br/>schema · vocabulary ·<br/>scene · limits · speed"}
+    G -- "invalid: one repair prompt" --> N
+    G -- "valid plan" --> J["Jetson Nano service<br/>SSH stdio · hard envelope"]
+    J --> A["PCA9685<br/>6 servos"]
+```
 
-`IDLE -> PROPOSING -> SELECTING -> PLANNING -> EXECUTING -> PROPOSING`
+1. **Engage** (key `e`). MindArm reads the scene; today it comes from a fixture of the
+   objects on the table.
+2. **Propose.** Nemotron returns exactly four distinct options as JSON, one of them `Home`.
+3. **Select** (keys `1`–`4`). In the planned BCI, looking at a flickering tile selects it.
+4. **Plan.** Nemotron maps the option to primitives: `MOVE_ABOVE <object>`, `GRASP`, `LIFT`,
+   `MOVE_TO_POSE handover`, `RELEASE`, `HOME`. It never outputs angles, pulses, or speeds.
+5. **Validate.** The plan must pass the JSON schema, the closed vocabulary, and the
+   scene-object check. The arm then preflights every target against joint limits and
+   maximum speeds before anything moves.
+6. **Execute** on the real arm, one primitive at a time, while the keyboard stays live.
+   Pressing `e` cancels the move in progress and returns HOME.
+7. **Repeat.** Fresh options are proposed after each cycle.
 
-The planned BCI uses SSVEP choices at 8.57 / 10 / 12 / 15 Hz and an eyes-closed alpha
-gesture for engagement. Flickering visuals, SSVEP/alpha decoding, cameras, and hardware
-are outside this step. Synthetic EEG acquisition and NPZ recording/replay already run
-alongside the keyboard-driven pipeline.
+## How we use Nebius Token Factory and NVIDIA Nemotron
 
-The contracts and behavior are defined in [docs/SPEC.md](docs/SPEC.md).
+- **Model:** `nvidia/nemotron-3-super-120b-a12b`, called through Token Factory's
+  OpenAI-compatible Chat Completions API (`src/mindarm/planner/nemotron.py`).
+- **Two reasoning tasks:** `propose_options` (scene → four goals) and `plan_motion`
+  (goal → primitives). Prompts are in `src/mindarm/planner/prompts.py`.
+- **Contract-first output:** JSON mode plus local Pydantic validation. Invalid output gets
+  exactly one repair attempt that includes the validation error. A second failure falls back
+  to safe resting options or `[HOME]`. SDK retries are disabled, so an operation makes at most
+  two calls. Every call is logged with latency and token usage.
+- **Measured live on 2026-10-28** (details in `docs/SPEC.md`):
 
-## NVIDIA Nemotron + Nebius Token Factory usage
+| Operation | Latency | Tokens (prompt / completion) | Note |
+| --- | --- | --- | --- |
+| propose_options | 2.0–3.7 s | 451 / 373–405 | 432 prompt tokens served from cache |
+| plan_motion | 1.3–3.0 s | 607–614 / 181–423 | |
+| plan_motion, repair | +2.0 s | 779 / 368 | The model put `object_label` on GRASP and LIFT; the gate rejected it and the repair was valid |
 
-The planner uses the OpenAI-compatible chat completions API with:
+  At the listed prices ($0.30 per million input tokens, $0.90 per million output tokens), a
+  full cycle costs about a tenth of a cent.
+- **Measured experiments, not yet in the default loop:**
+  - Disabling reasoning (`chat_template_kwargs: {"enable_thinking": false}`) cut proposals to
+    0.6–1.4 s, and all three were still valid. Plans without reasoning were invalid half the
+    time, so plans should keep it.
+  - **Nemotron 3.5 Super VL** read an image and returned JSON that validated directly as
+    MindArm's `Scene` in 2.2 s, with object centers within 0.02 of the truth on a synthetic
+    test image. Perception from the Jetson's camera is the next module to replace.
 
-| Environment variable | Default |
+## Safety by design
+
+| Layer | What it enforces |
 | --- | --- |
-| `NEBIUS_API_KEY` | Required for the real planner |
-| `NEBIUS_BASE_URL` | `https://api.tokenfactory.us-central1.nebius.com/v1/` |
-| `NEMOTRON_MODEL` | `nvidia/nemotron-3-super-120b-a12b` |
+| Model contract | Closed vocabulary; only `MOVE_ABOVE` takes an object, only `MOVE_TO_POSE` takes `home` or `handover`; `Home` must map to exactly `[HOME]` |
+| Scene check | `MOVE_ABOVE` may only name an object in the current scene |
+| Laptop preflight | Every target within joint limits, every move within max speed, no clamping; an invalid submission is rejected before any motion |
+| Jetson service | An independent hard envelope (calibration limits, 1000 µs/s speed cap, durations in (0, 10] s). It rejects anything outside it, whatever the laptop sends |
+| Execution | One primitive at a time on a worker, with the keyboard still polled. Disengage, error, or quit cancels the move and commands HOME |
+| Link loss | The service stops the ramp and holds the posture; nothing moves while the link is down |
 
-These defaults follow the [official Nebius Nemotron example](https://github.com/nebius/token-factory-cookbook/blob/main/models/nemotron/nemotron3-super-120B.md).
-Requests contain text scene data and request JSON output. Every returned object is
-validated locally. Invalid output receives one repair attempt containing the validation
-error; a second invalid response produces generic resting options or a `[HOME]` plan.
-API/transport errors return the application to HOME + IDLE and are logged. A missing key
-fails startup with an actionable message.
+Known limits: there is no collision avoidance, no position feedback, and no force sensing. The
+only stops are disengage/quit and cutting the servo supply. See "Open risks" in `docs/SPEC.md`.
 
-Each API attempt records latency, token usage when supplied by the API, and outcome in
-the session JSONL. Prompts live in `src/mindarm/planner/prompts.py`. The model cannot
-specify angles, speeds, or arbitrary commands.
+## Hardware
 
-## Setup
+| Part | Role |
+| --- | --- |
+| 3D-printed 6-DOF arm (built before Aug 26, 2026) | base, shoulder, elbow (MG996R), wrist pitch and roll (MG90S), gripper (SG90) |
+| NVIDIA Jetson Nano 4GB (L4T R32.7.5) | Runs the arm service; drives the servos over I2C |
+| PCA9685 at 0x40 on I2C bus 1 | 50 Hz servo PWM; servo power from a separate 5 V 10 A supply |
+| USB UVC camera on the Jetson | Live view while teaching poses; planned input for perception |
+| 2× AD8232 + 2× ADS1115 (0x48, 0x49) on I2C bus 0 | Two-channel EEG acquisition at 250 Hz; verified, not yet used for intent |
+| Laptop | Orchestrator, Nemotron calls, keyboard intent; reaches the Jetson over the micro-USB network link |
 
-Requires Python 3.10 or newer. Run these commands from this project's `mindarm/` directory.
-The supported development installation is editable so configuration and fixtures remain
-beside the source.
+The laptop talks to the Jetson only over SSH stdin/stdout. The Jetson keeps its firewall and
+disabled port forwarding. The Jetson runs Python 3.6 with only `python3-smbus`. Before EEG
+electrodes go on a person, the sensors need galvanic isolation from mains-powered equipment.
 
-PowerShell:
+## Run it
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
-Copy-Item .env.example .env
-```
-
-Edit `.env` locally and set `NEBIUS_API_KEY`. Do not commit it. Existing environment
-variables take precedence over `.env`. You can skip the `.env` step for offline runs.
-
-On macOS/Linux:
-
-```bash
-python3 -m venv .venv
-.venv/bin/python -m pip install -e '.[dev]'
-cp .env.example .env
-source .venv/bin/activate
-```
-
-On PowerShell, activate with `.\.venv\Scripts\Activate.ps1` if your execution policy
-permits it, or use `.\.venv\Scripts\python.exe` directly in place of `python` below.
-
-## Run
-
-With the environment active and the API key configured:
+Requires Python 3.10+. From this directory:
 
 ```console
-python -m mindarm
+python -m pip install -e ".[dev]"
+python -m mindarm --planner fake          # full loop offline, simulated arm
 ```
 
-Press **e**, wait for four options, then press **2**. In a terminal, keys are immediate;
-no Enter is required. Selections outside SELECTING are ignored. During a slow API call,
-**e** still disengages and discards its eventual result. **q**, EOF, or Ctrl+C exits safely.
+**Real Nemotron:** copy `.env.example` to `.env`, set `NEBIUS_API_KEY`, then run
+`python -m mindarm`. Press `e`, wait for four options, press `1`–`4`. Press `e` to return HOME
+and disengage, or `q` to quit. `--once` runs a single cycle.
 
-Offline demo, including one-cycle mode:
+**Real arm:**
 
-```console
-python -m mindarm --planner fake
-python -m mindarm --planner fake --once
-```
+1. Copy `jetson/mindarm_arm.py` to the Jetson's home directory.
+2. Set `arm: jetson` in `config/settings.yaml`. `jetson_command` is configured for a Windows
+   laptop using the SSH alias `jetson-usb`; adjust it for your setup.
+3. Place the arm near HOME by hand and power the servos.
+4. Run `python -m mindarm`. At startup the service energizes the channels one at a time at HOME.
 
-`--once` exits after one completed or failed cycle and returns the arm home. Without it,
-the loop continues until you quit. Offline option 2 picks up the bottle; live options vary.
+`python -m mindarm.teach` serves a local page (127.0.0.1:8766) with the Jetson camera, joint
+sliders, and buttons to save the taught poses into `config/jetson_arm.yaml`.
 
-Configuration:
+**Tests:** `pytest` runs the offline suite (97 tests, network blocked). `pytest -m integration`
+calls the real API and fails if either operation needed the fallback.
 
-```console
-python -m mindarm --config config/settings.yaml
-```
+Each session writes `logs/<session-id>.jsonl` (cycles, plans, results, latencies, every model
+call) and, when EEG is enabled, `recordings/<session-id>.npz`.
 
-Select implementations in `config/settings.yaml`. All file paths in YAML resolve relative
-to that file. For replay, set `eeg: replay` and `replay_path` to an existing recording;
-`replay_loop: false` disengages with an EOF error when insufficient samples remain.
-Keyboard input remains the intent source during EEG replay.
+## Repository map
 
-Each session writes `logs/<session-id>.jsonl`. Engaged samples are saved on orderly exit
-to `recordings/<session-id>.npz`. Both directories are gitignored. Records have UTC
-timestamps, and each cycle includes the scene, options, selection, plan, result, and
-latencies. The NPZ keys are `data` (channels x samples), `sample_rate`, and `n_channels`.
+| Path | Contents |
+| --- | --- |
+| `src/mindarm/interfaces.py` | Protocols and Pydantic models: the contract every module implements |
+| `src/mindarm/orchestrator.py` | State machine: IDLE → PROPOSING → SELECTING → PLANNING → EXECUTING |
+| `src/mindarm/planner/` | Nemotron planner, prompts, offline planner |
+| `src/mindarm/arm/` | Simulated arm and the Jetson arm adapter |
+| `jetson/mindarm_arm.py` | The service deployed on the Jetson |
+| `src/mindarm/eeg/` | Synthetic EEG, NPZ recording and replay |
+| `config/` | Settings, simulator limits, real-arm limits and taught poses (µs) |
+| `docs/SPEC.md` | Source of truth: contracts, safety behavior, measurements, open risks |
 
-Tests:
+## What is new for this hackathon
 
-```console
-pytest
-pytest -m integration
-```
-
-The default suite is offline and excludes integration tests even when a key is present.
-The opt-in integration test calls the real API, skips if the key is missing, and fails
-if either operation falls back instead of producing a valid model response.
+The 3D-printed arm existed before August 26, 2026. Everything else is new work for this entry:
+the orchestrator, the Nemotron planner and its validation, the Jetson arm service and safety
+envelope, the pose teaching tool, the EEG acquisition stack, and the hardware integration.
 
 ## Prior work
 
 Maha Nawaz, Abdul Basit, and Muhammad Shafique,
 ["MindArm: Mechanized Intelligent Non-Invasive Neuro-Driven Prosthetic Arm System"](https://arxiv.org/abs/2403.19992)
-(2024), describes a DNN-based EEG system with three actions: idle, handshake, and cup pickup.
+(2024), describes a DNN-based EEG system with three fixed actions: idle, handshake, and cup
+pickup. This project plans SSVEP intent selection instead of a DNN on raw EEG, and uses
+scene-aware options from Nemotron instead of three fixed actions.
 
-This project's planned approach uses SSVEP intent selection instead of a DNN on raw EEG,
-and scene-aware Nemotron options instead of three fixed actions. Those BCI and perception
-components are future work; this implementation establishes their replaceable contracts.
+## Feedback on Nebius Token Factory and NVIDIA
 
-## What is new
+What worked well:
 
-The 3D-printed arm existed before August 26, 2026. The BCI pipeline, planner, perception,
-and software are new work for this entry. The current deliverable implements the software
-skeleton and real planner integration; it does not include new hardware or a completed BCI.
+- The OpenAI-compatible API meant no new client code, and JSON mode plus Nemotron 3 Super gave
+  valid structured output on most first attempts; the one invalid plan in the live session was
+  fixed by a single repair prompt.
+- Latency and price fit an interactive loop: a full cycle costs about a tenth of a cent.
+- Prompt caching applied automatically to the repeated prompt prefix (432 of 451 tokens).
+
+What slowed us down:
+
+- **Billing country:** Peru is not in the billing "Country of residence" list, which blocks
+  onboarding and API key creation for participants there until support steps in.
+- **Two endpoints, two catalogs:** `api.tokenfactory.us-central1.nebius.com` listed 18 models
+  and `api.tokenfactory.nebius.com` listed 30. Nemotron 3.5 Super VL appeared only on the
+  second. The documentation and the cookbook use different endpoints.
+- **Reasoning controls:** turning reasoning off (`chat_template_kwargs`) cut latency by
+  3–7×, but we found the parameter in third-party docs, not in Token Factory's.
+- **Reasoning and `max_tokens`:** with JSON mode and a small budget (256), reasoning can
+  consume every token, leaving a truncated response with no answer.
+- **One transient HTTP 500** on the first call of a session; identical requests right after
+  succeeded.
 
 ## Roadmap
 
-- Step 1: This walking skeleton, validated motion vocabulary, logs, replay, and offline tests.
-- Later steps: Replace one fake module at a time with recorded/real EEG, SSVEP decoding,
-  perception, and calibrated arm hardware, preserving the interfaces and updating SPEC.
-- Track latency and hardware availability before committing to deployment architecture.
-
-See the open risks in [docs/SPEC.md](docs/SPEC.md). No later-step implementation is included.
+1. Perception from the Jetson camera with Nemotron 3.5 Super VL.
+2. A web operator console with the flickering SSVEP option tiles.
+3. Reasoning off for proposals, on for plans.
+4. Galvanic isolation for the EEG front end, then SSVEP and alpha decoding from recordings.
+5. Stable object IDs, so two objects with the same label can be told apart.
 
 ## License
 
