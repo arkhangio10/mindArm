@@ -34,6 +34,8 @@ recording validation and persistence. `__main__.py` handles setup and terminal c
 service that runs on the Jetson. It is not part of the package and is deployed by copying
 it to the Jetson's home directory. `teach.py` is the operator's pose teaching tool.
 `bench.py` is the live planner benchmark; it calls Token Factory and no test runs it.
+`jetson/eeg_live.py` also runs on the Jetson and is deployed the same way. `tools/eeg_view.py`
+and `tools/console.html` are the operator console, also outside the package.
 
 The default editable install locates `config/settings.yaml` relative to the source checkout.
 A non-editable installation must use `--config` pointing to a retained checkout/configuration.
@@ -145,11 +147,15 @@ With looping disabled, a read exceeding remaining samples raises `EOFError` with
 advancing or returning a partial block. End-of-file disengages through the normal error path.
 
 `StreamEEGSource` (`eeg: stream`) reads one channel in volts from the viewer's server-sent
-event stream (`stream_url`, served by `eeg_view.py` outside this repository). It keeps at most
+event stream (`stream_url`, served by `tools/eeg_view.py`). It keeps at most
 0.5 s of the newest samples, so reengaging never reads stale signal. Setup fails without
 samples, and a lost or stalled stream raises through the normal error path. At `/console`, the
 same viewer also starts one `--once` MindArm process per cycle, forwards the page's keys to it
 (`/mindarm/key`), and publishes its states, options, and planner calls (`/mindarm/events`).
+That process uses `config/mindarm_live.yaml` and the one-object `fixtures/scene_sponge.json`.
+`jetson/eeg_live.py` streams the ADS1115 samples over SSH stdout. Calibrations from the page go
+to `recordings/`. `tools/console.html` opened as a plain file is a simulated replay that never
+commands the arm.
 
 `EEGRecording` checks every block, retains copies in memory, and writes a compressed NPZ
 on orderly shutdown. It creates no archive when recording is disabled or no samples were
@@ -728,9 +734,12 @@ the `us-central1` endpoint does not). One synthetic 320×240 image, JSON mode, r
    omitted from the NPZ signal; session logs retain wall-clock events.
 9. **Input timing:** Measurements cover keyboard intent and one double-blink run; they do not
    establish SSVEP reliability, flicker timing, usability, or clinical benefit.
-10. **Live gesture safety:** Electrodes on a person are only allowed while everything runs on
-    battery. The servo supply runs from the mains, so with the current hardware the gesture
-    drives the real arm only as replayed signal, which must be labeled as recorded, not live.
+10. **Live gesture safety:** The EEG front end has no galvanic isolation, so electrodes on a
+    person are only allowed while everything runs on battery. The servo supply runs from the
+    mains, so reproducing the live gesture on the real arm needs a battery supply for the
+    servos. The 15 live sessions under Hardware measurements were run by one operator, and
+    their power sources are not recorded here. Galvanic isolation comes before anyone else
+    wears the electrodes. A replayed signal driving the real arm must be labeled as recorded.
 11. **Stream reads:** `StreamEEGSource.read` waits on the network. A stalled stream delays key
     polling by up to the block duration plus 2 s before the error path commands HOME. The
     orchestrator's pacing consumed about 220 of the 250 samples/s in the measured sessions, so

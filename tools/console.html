@@ -1,0 +1,858 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MindArm console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap">
+<style>
+  /* One 16:9 screen for recording: metrics header, system chain, states, 3 columns, log, and console. */
+  :root { --bg:#0d0904; --panel:#15100a; --line:#4a3614; --fg:#ffb000; --hi:#ffd27a; --muted:#b08a4a; --ok:#9be36b; --bad:#ff6a4d;
+          --display:"Press Start 2P", ui-monospace, monospace; --mono:"VT323", ui-monospace, Consolas, monospace; color-scheme: dark; }
+  body.green { --bg:#030d06; --panel:#08160c; --line:#1d4a2a; --fg:#39ff7a; --hi:#b6ffcb; --muted:#5fae7a; --ok:#ffd166; }
+  html, body { height: 100%; margin: 0; }
+  body { overflow: hidden; background: var(--bg); color: var(--hi); font-family: var(--mono);
+         font-size: clamp(13px, 0.8vw + 0.5vh, 21px); line-height: 1.12; text-shadow: 0 0 6px color-mix(in srgb, var(--fg) 30%, transparent); }
+  body::after { content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 30;
+                background: repeating-linear-gradient(to bottom, transparent 0, transparent 2px, rgba(0,0,0,.22) 3px),
+                            radial-gradient(ellipse at center, transparent 62%, rgba(0,0,0,.45) 100%); }
+  .app { height: 100vh; box-sizing: border-box; padding: 1.4vh 1.3vw; display: grid; gap: .9vh;
+         grid-template-rows: auto auto auto minmax(0, 1fr) 14vh auto; }
+  header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5vh 1.6vw;
+           border-bottom: 2px solid var(--line); padding-bottom: .8vh; }
+  .brand { display: flex; align-items: baseline; gap: 1.1vw; flex-wrap: wrap; }
+  .title { font-family: var(--display); font-size: clamp(14px, 1.45vw, 28px); color: var(--fg); background: none; border: 0; padding: 0; cursor: pointer; min-height: 0; }
+  .title:hover { background: none; color: var(--hi); }
+  .tag { color: var(--muted); }
+  .metrics { display: flex; flex-wrap: wrap; gap: .4vh 1.5vw; font-variant-numeric: tabular-nums; }
+  .metrics span { color: var(--muted); } .metrics b { color: var(--fg); font-weight: 400; }
+
+  .pipe { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0; align-items: stretch; }
+  .node { position: relative; border: 2px solid var(--line); padding: .5vh .6vw; display: flex; flex-direction: column; gap: .2vh; background: var(--panel); }
+  .node + .node { margin-left: 1.6vw; }
+  .node + .node::before { content: ""; position: absolute; left: calc(-1.6vw - 2px); top: 50%; width: 1.6vw; height: 2px; background: var(--line); }
+  .node.flow + .node::before, .node + .node.flow::before { background: repeating-linear-gradient(to right, var(--fg) 0 6px, transparent 6px 12px); background-size: 12px 2px; animation: dash .5s linear infinite; }
+  @keyframes dash { to { background-position: 12px 0; } }
+  .node .k { font: 400 clamp(7px, .55vw, 11px)/1.4 var(--display); color: var(--muted); display: flex; align-items: center; gap: .4vw; }
+  .node .v { color: var(--hi); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .node .s { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .node.on { border-color: var(--fg); box-shadow: 0 0 12px color-mix(in srgb, var(--fg) 35%, transparent) inset; }
+  .node.on .k { color: var(--fg); }
+  .node.bad { border-color: var(--bad); } .node.bad .k { color: var(--bad); }
+  .dot { width: .65em; height: .65em; display: inline-block; background: var(--line); flex: none; }
+  .node.on .dot { background: var(--fg); animation: blink .5s steps(1, end) infinite; }
+  .node.ok .dot { background: var(--ok); }
+  .node.bad .dot { background: var(--bad); }
+
+  .states { display: flex; flex-wrap: wrap; gap: .5vw; align-items: center; }
+  .states span { padding: .2vh .7vw; border: 2px solid var(--line); color: var(--muted); }
+  .states span.on { background: var(--fg); color: var(--bg); border-color: var(--fg); text-shadow: none; }
+  .states .sim { margin-left: auto; color: var(--muted); border: 0; padding: 0; }
+
+  .cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr) minmax(0, 1.05fr); gap: 1.1vw; min-height: 0; }
+  .col { display: flex; flex-direction: column; gap: .7vh; min-height: 0; }
+  h2 { margin: 0; font: 400 clamp(7px, .58vw, 12px)/1.4 var(--display); color: var(--fg); letter-spacing: .06em;
+       display: flex; align-items: center; justify-content: space-between; gap: .6vw; }
+  select { font-family: var(--mono); font-size: clamp(12px, .7vw + .3vh, 17px); color: var(--hi); background: var(--panel);
+           border: 1px solid var(--line); max-width: 55%; }
+  .cam { position: relative; flex: 3 1 0; min-height: 0; border: 2px solid var(--line); overflow: hidden;
+         background: repeating-linear-gradient(135deg, var(--panel) 0 10px, var(--bg) 10px 20px); }
+  .cam video, .cam img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .cam img { z-index: 1; object-fit: contain; background: #000; }
+  body.live .cols { grid-template-columns: minmax(0, .8fr) minmax(0, .7fr) minmax(0, 1.6fr); }
+  body.live .gate-title, body.live .gate { display: none; }
+  body.live .camarm { flex: 1 1 0; z-index: 31; }
+  #vOp { transform: scaleX(-1); }
+  body.tint .cam video { filter: grayscale(1) sepia(1) saturate(2.4) hue-rotate(-8deg) contrast(1.08) brightness(.95); }
+  body.green.tint .cam video { filter: grayscale(1) sepia(1) saturate(2.4) hue-rotate(75deg) contrast(1.08) brightness(.95); }
+  .hud { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+  .hud .c { position: absolute; width: 1.6vw; height: 1.6vw; border: 2px solid var(--fg); }
+  .hud .tl { top: .6vh; left: .5vw; border-right: 0; border-bottom: 0; } .hud .tr { top: .6vh; right: .5vw; border-left: 0; border-bottom: 0; }
+  .hud .bl { bottom: .6vh; left: .5vw; border-right: 0; border-top: 0; } .hud .br { bottom: .6vh; right: .5vw; border-left: 0; border-top: 0; }
+  .hud .t1 { position: absolute; top: 1vh; left: 2.4vw; color: var(--hi); background: color-mix(in srgb, var(--bg) 55%, transparent); padding: 0 .4vw; }
+  .hud .t1 em { color: var(--bad); font-style: normal; animation: blink 1s steps(1, end) infinite; }
+  .hud .t2 { position: absolute; top: 1vh; right: 2.4vw; font-variant-numeric: tabular-nums; background: color-mix(in srgb, var(--bg) 55%, transparent); padding: 0 .4vw; }
+  .hud .t3 { position: absolute; bottom: 1vh; left: 2.4vw; right: 2.4vw; color: var(--muted); background: color-mix(in srgb, var(--bg) 55%, transparent); padding: 0 .4vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hud .big { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); font: 400 clamp(10px, 1.1vw, 20px)/1.6 var(--display);
+              color: var(--bg); background: var(--fg); padding: .6vh 1vw; text-shadow: none; white-space: nowrap; }
+  .ph { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center;
+        padding: 3vh 3vw; color: var(--muted); z-index: 1; }
+
+  .panel { border: 2px solid var(--line); background: var(--panel); padding: .6vh .7vw; min-height: 0; overflow: hidden;
+           display: flex; flex-direction: column; gap: .3vh; }
+  .eeg { flex: 2 1 0; }
+  .eeg svg { flex: 1 1 0; min-height: 0; width: 100%; }
+  .row { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .3vh 1vw; color: var(--muted); }
+  .blink-tag { padding: 0 .4vw; color: var(--muted); }
+  .blink-tag.on { background: var(--fg); color: var(--bg); text-shadow: none; }
+
+  .stage { flex: 1 1 0; min-height: 0; display: grid; }
+  .msg { border: 2px dashed var(--line); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1.2vh; text-align: center; padding: 1vh 1vw; }
+  .msg strong { font: 400 clamp(10px, .9vw, 16px)/1.6 var(--display); color: var(--fg); }
+  .tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); gap: .7vw; min-height: 0; }
+  button { font: inherit; font-family: var(--mono); color: var(--fg); background: transparent; border: 2px solid var(--fg);
+           padding: .4vh .8vw; cursor: pointer; min-height: 38px; text-shadow: inherit; }
+  button:hover { background: var(--fg); color: var(--bg); text-shadow: none; }
+  button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px dashed var(--hi); outline-offset: 2px; }
+  .tile { display: flex; flex-direction: column; justify-content: center; gap: .6vh; text-align: left; min-height: 0; border-color: var(--line); color: var(--hi); padding: 1vh 1vw; }
+  .tile .lbl { font: 400 clamp(9px, .78vw, 15px)/1.55 var(--display); }
+  .tile .hz { color: var(--fg); }
+  .tile.sel { background: var(--fg); color: var(--bg); border-color: var(--fg); text-shadow: none; }
+  .tile.sel .hz { color: var(--bg); }
+  @keyframes fl { 0% { background: var(--fg); color: var(--bg); } 50% { background: transparent; color: var(--hi); } }
+  body.flicker.selecting .tile:nth-child(1) { animation: fl 116.67ms steps(1, end) infinite; }
+  body.flicker.selecting .tile:nth-child(2) { animation: fl 100ms steps(1, end) infinite; }
+  body.flicker.selecting .tile:nth-child(3) { animation: fl 83.33ms steps(1, end) infinite; }
+  body.flicker.selecting .tile:nth-child(4) { animation: fl 66.67ms steps(1, end) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  .cur { animation: blink 1s steps(1, end) infinite; }
+  .controls { display: flex; flex-wrap: wrap; gap: .5vw; }
+  .note { margin: 0; } .note em { color: var(--fg); font-style: normal; }
+  .warn { margin: 0; color: var(--bad); }
+  [hidden] { display: none !important; }
+  .cal { position: fixed; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center;
+         background: color-mix(in srgb, var(--bg) 90%, transparent); }
+  .cal > div { width: min(760px, 94vw); max-height: 92vh; overflow: auto; border: 2px solid var(--fg); background: var(--panel);
+               padding: 2vh 2vw; display: flex; flex-direction: column; gap: 1.4vh; }
+  .cal strong { font: 400 clamp(11px, 1vw, 18px)/1.6 var(--display); color: var(--fg); }
+  .cal .prompt { margin: 0; font-size: 1.7em; color: var(--hi); min-height: 2.4em; }
+  .cal table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  .cal th, .cal td { border-top: 1px solid var(--line); padding: .3vh .5vw; text-align: right; font-weight: 400; }
+  .cal th { color: var(--muted); }
+  .cal th:first-child, .cal td:first-child { text-align: left; }
+
+  .gate { flex: 3 1 0; }
+  .json { flex: 1 1 0; min-height: 0; overflow: hidden; margin: 0; font: inherit; white-space: pre-wrap; word-break: break-word; color: var(--hi); }
+  .json.badj { color: var(--bad); }
+  .checks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .1vh .8vw; border-top: 1px solid var(--line); padding-top: .4vh; }
+  .chk { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
+  .chk.ok { color: var(--ok); } .chk.bad { color: var(--bad); } .chk.run { color: var(--fg); }
+  .verdict { min-height: 1.2em; }
+  .verdict.ok { color: var(--ok); } .verdict.bad { color: var(--bad); }
+  .joints { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: .5vw; }
+  .jt { display: flex; flex-direction: column; gap: .2vh; min-width: 0; }
+  .jt .bar { height: .55em; border: 1px solid var(--line); }
+  .jt .bar i { display: block; height: 100%; background: var(--fg); transition: width .9s linear; }
+  .jt .n { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .jt .us { font-variant-numeric: tabular-nums; }
+
+  .lower { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 1.1vw; min-height: 0; }
+  .lines { flex: 1 1 0; min-height: 0; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; }
+  .lines div { white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+  .lines .badl { color: var(--bad); } .lines .okl { color: var(--ok); }
+  .prompt { display: flex; gap: .6vw; align-items: center; }
+  .prompt label { color: var(--fg); }
+  .prompt input { flex: 1; min-width: 0; font: inherit; color: var(--hi); background: transparent; border: 0; }
+  footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .3vh 1.4vw; color: var(--muted); border-top: 2px solid var(--line); padding-top: .6vh; }
+
+  .boot { position: fixed; inset: 0; z-index: 40; background: var(--bg); padding: 6vh 6vw; box-sizing: border-box; display: flex; flex-direction: column; gap: .9vh;
+          font-size: clamp(15px, 1.25vw + .4vh, 30px); transition: opacity .5s; }
+  .boot .b1 { font: 400 clamp(14px, 1.7vw, 32px)/1.6 var(--display); color: var(--fg); margin-bottom: 1.5vh; }
+  .boot .okw { color: var(--ok); } .boot .arm { color: var(--fg); }
+  .boot .skip { margin-top: auto; color: var(--muted); }
+  .boot.gone { opacity: 0; pointer-events: none; }
+  .egg { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; z-index: 35; pointer-events: none; }
+  .egg div { font: 400 clamp(16px, 2.4vw, 44px)/1.5 var(--display); color: var(--bg); background: var(--fg); padding: 2vh 3vw; text-align: center; text-shadow: none; }
+  @media (prefers-reduced-motion: reduce) {
+    body.flicker.selecting .tile, .cur, .node.on .dot, .hud .t1 em, .node.flow + .node::before, .node + .node.flow::before { animation: none !important; }
+    .boot { transition: none; }
+  }
+  @media (max-width: 900px), (max-height: 540px) {
+    body { overflow: auto; } .app { height: auto; grid-template-rows: none; }
+    .pipe { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1vh 1vw; } .node + .node { margin-left: 0; } .node + .node::before { display: none; }
+    .cols, .lower { grid-template-columns: minmax(0, 1fr); } .cam { min-height: 220px; flex: none; } .eeg, .gate { min-height: 200px; flex: none; }
+    .stage { min-height: 300px; flex: none; } .lower { height: auto; } .lines { min-height: 120px; }
+  }
+</style>
+</head>
+<body class="tint">
+<div class="boot" id="boot" role="status" aria-live="polite">
+  <div class="b1">MINDARM BIOS v0.1</div>
+  <div id="bootLines"></div>
+  <div class="skip">press any key to skip</div>
+</div>
+
+<div class="app">
+  <header>
+    <div class="brand">
+      <button type="button" class="title" id="title">MINDARM</button>
+      <span class="tag">choose the goal, not the joints · brain-controlled through intent selection</span>
+    </div>
+    <div class="metrics" aria-label="Session metrics">
+      <span>CYCLES <b id="mCycles">0</b></span>
+      <span>TOKENS <b id="mTokens">0</b></span>
+      <span>COST <b id="mCost">$0.0000</b></span>
+      <span>LAST CALL <b id="mLat">–</b></span>
+    </div>
+  </header>
+
+  <div class="pipe" id="pipe" aria-label="System chain">
+    <div class="node" data-n="intent"><span class="k"><i class="dot"></i>INTENT</span><span class="v">keyboard · sim</span><span class="s">EEG 2 ch · 250 Hz</span></div>
+    <div class="node" data-n="mindarm"><span class="k"><i class="dot"></i>MINDARM</span><span class="v">laptop</span><span class="s">state machine</span></div>
+    <div class="node" data-n="nemotron"><span class="k"><i class="dot"></i>NEMOTRON</span><span class="v">3 Super 120B</span><span class="s" id="nemLat">Nebius Token Factory</span></div>
+    <div class="node" data-n="gate"><span class="k"><i class="dot"></i>SAFETY GATE</span><span class="v">5 checks</span><span class="s" id="gateTxt">armed</span></div>
+    <div class="node" data-n="jetson"><span class="k"><i class="dot"></i>JETSON</span><span class="v">SSH · USB link</span><span class="s">ramps · envelope</span></div>
+    <div class="node" data-n="arm"><span class="k"><i class="dot"></i>ARM</span><span class="v">PCA9685 · 6 servos</span><span class="s" id="armTxt">holding HOME</span></div>
+  </div>
+
+  <nav class="states" id="states" aria-label="Cycle state"></nav>
+
+  <main class="cols">
+    <section class="col">
+      <h2>CAM 2 · OPERATOR <select id="selOp" aria-label="Operator camera"></select></h2>
+      <div class="cam">
+        <video id="vOp" autoplay muted playsinline></video>
+        <div class="ph" id="phOp">press ENABLE CAMERAS to show the laptop webcam</div>
+        <div class="hud" aria-hidden="true">
+          <i class="c tl"></i><i class="c tr"></i><i class="c bl"></i><i class="c br"></i>
+          <span class="t1"><em>●</em> LIVE · CAM 2 · OPERATOR</span><span class="t2 clock"></span>
+          <span class="t3">CH1 forehead electrodes</span>
+        </div>
+      </div>
+      <h2>EEG · <span id="eegTitle">2 CHANNELS</span></h2>
+      <div class="panel eeg">
+        <svg viewBox="0 0 300 120" preserveAspectRatio="none" role="img" aria-label="Two simulated EEG channels scrolling">
+          <line x1="0" y1="60" x2="300" y2="60" style="stroke: var(--line); stroke-width: 1"></line>
+          <polyline id="e1" style="fill: none; stroke: var(--fg); stroke-width: 1.5" vector-effect="non-scaling-stroke"></polyline>
+          <polyline id="e2" style="fill: none; stroke: var(--hi); stroke-width: 1.2; opacity: .8" vector-effect="non-scaling-stroke"></polyline>
+        </svg>
+        <div class="row"><span class="blink-tag" id="blinkTag">BLINK</span><span id="eegNote">simulated signal in this prototype</span></div>
+        <div class="row" id="eegStats" hidden></div>
+        <button type="button" id="bCal" hidden>CALIBRATE SIGNAL</button>
+      </div>
+    </section>
+
+    <section class="col">
+      <h2>OPTIONS FROM NEMOTRON · LOOK TO SELECT</h2>
+      <div class="stage" id="stage"></div>
+      <div class="controls">
+        <button type="button" id="bEngage">[E] ENGAGE</button>
+        <button type="button" id="bFlicker" aria-pressed="false">[F] FLICKER: OFF</button>
+        <button type="button" id="bSound" aria-pressed="false">[S] SOUND: OFF</button>
+        <button type="button" id="bCams">ENABLE CAMERAS</button>
+      </div>
+      <p class="note">Intent input: keyboard <em>(simulated)</em>. This build does not read intent from the brain yet.</p>
+      <p class="warn">WARNING · flashing stimuli at 8.57–15 Hz. Do not use with photosensitive epilepsy.</p>
+      <p class="warn">WARNING · no galvanic isolation. Electrodes on a person only while everything runs on battery.</p>
+    </section>
+
+    <section class="col">
+      <h2>CAM 1 · ARM <select id="selArm" aria-label="Arm camera"></select></h2>
+      <div class="cam camarm">
+        <video id="vArm" autoplay muted playsinline></video>
+        <img id="imgArm" alt="Live view from the Jetson camera" hidden>
+        <div class="ph" id="phArm">real build: Jetson UVC camera over SSH · here, pick a second camera above</div>
+        <div class="hud" aria-hidden="true">
+          <i class="c tl"></i><i class="c tr"></i><i class="c bl"></i><i class="c br"></i>
+          <span class="t1"><em>●</em> LIVE · CAM 1 · JETSON UVC 1280×720</span><span class="t2 clock"></span>
+          <span class="t3" id="armHud">pick spot taped · one sponge</span>
+          <span class="big" id="armBig" hidden></span>
+        </div>
+      </div>
+      <h2 class="gate-title">NEMOTRON → SAFETY GATE <span id="attempt"></span></h2>
+      <div class="panel gate">
+        <pre class="json" id="json">{ "waiting": "engage to request options" }</pre>
+        <div class="verdict" id="verdict"></div>
+        <div class="checks" id="checks"></div>
+      </div>
+      <div class="joints" id="joints" aria-label="Servo targets in microseconds"></div>
+    </section>
+  </main>
+
+  <div class="lower">
+    <section class="panel">
+      <h2>NEBIUS TOKEN FACTORY · CALLS</h2>
+      <div class="lines" id="log"></div>
+    </section>
+    <section class="panel">
+      <h2>CONSOLE</h2>
+      <div class="lines" id="out"></div>
+      <div class="prompt"><label for="cmd">&gt;</label><input id="cmd" type="text" autocomplete="off" spellcheck="false"></div>
+    </section>
+  </div>
+
+  <footer>
+    <span>Nemotron never sets angles or speeds: it picks from a closed vocabulary, and the arm enforces its own limits.</span>
+    <span id="footNote">keyboard-driven simulation of intent selection · not a medical device</span>
+  </footer>
+</div>
+<div class="cal" id="cal" hidden><div role="dialog" aria-label="EEG calibration">
+  <strong id="calTitle">EEG CALIBRATION · 45 S</strong>
+  <p class="prompt" id="calText">Five guided phases. Sit still, relax your shoulders, and turn your sound up.</p>
+  <table id="calTable" hidden></table>
+  <p class="note" id="calInfo"></p>
+  <div class="row"><button type="button" id="bCalGo">START</button><button type="button" id="bCalClose">CLOSE</button></div>
+</div></div>
+<div class="egg" id="egg" hidden><div id="eggText"></div></div>
+
+<script>
+  // Poses replay the 2026-10-28 session in docs/SPEC.md; options are the 2026-10-30 one-sponge Nemotron reply.
+  const REST = [1500, 1450, 1500, 1600, 1500, 1500];
+  const NAMES = ["base", "shoulder", "elbow", "wrist_p", "wrist_r", "gripper"];
+  const POSES = {
+    HOME: REST,
+    MOVE_ABOVE: [1600, 1230, 2000, 1400, 1010, 1900],
+    GRASP: [1600, 1230, 2000, 1400, 1010, 1150],
+    LIFT: [1600, 1380, 2000, 1250, 1010, 1150],
+    MOVE_TO_POSE: [1000, 1430, 1800, 1200, 1010, 1150],
+    RELEASE: [1000, 1430, 1800, 1200, 1010, 1900],
+  };
+  const OPTS = [
+    ["Home", "Return to the home pose.", "8.57 Hz", ""],
+    ["sponge", "Pick up the sponge and hand it to the user.", "10 Hz", "sponge"],
+    ["Generic Resting Choice 1", "Move to a generic resting position.", "12 Hz", ""],
+    ["Generic Resting Choice 2", "Move to another generic resting position.", "15 Hz", ""],
+  ];
+  const PROPOSE_CALLS = [{ ms: 3729, p: 451, c: 373 }, { ms: 1967, p: 451, c: 405 }, { ms: 2042, p: 451, c: 399 }];
+  const PRICE_IN = 0.30 / 1e6, PRICE_OUT = 0.90 / 1e6;
+  const PHASES = ["IDLE", "PROPOSING", "SELECTING", "PLANNING", "EXECUTING"];
+  const PLAN_CHECKS = ["JSON schema", "closed vocabulary", "objects in scene", "limits + speed (laptop)", "Jetson envelope"];
+  const OPT_CHECKS = ["JSON schema", "exactly 4 options", "one Home option", "distinct labels"];
+  const CHEAT = ["ArrowUp", "ArrowUp", "ArrowDown", "ArrowDown", "ArrowLeft", "ArrowRight", "ArrowLeft", "ArrowRight", "b", "a"];
+  const BOOT = [
+    ["laptop ........... MindArm 0.1 · orchestrator", "OK"],
+    ["usb link ......... jetson-usb · 192.168.55.1", "OK"],
+    ["jetson ........... Nano 4GB · L4T R32.7.5", "OK"],
+    ["i2c bus 1 ........ PCA9685 @0x40 · 6 servos", "OK"],
+    ["i2c bus 0 ........ ADS1115 @0x48 @0x49 · EEG 2 ch", "OK"],
+    ["camera ........... UVC 0c45:636b · /dev/video0", "OK"],
+    ["planner .......... nemotron-3-super-120b-a12b · Nebius Token Factory", "OK"],
+    ["safety gate ...... closed vocabulary · limits · envelope", "ARMED"],
+    ["intent input ..... double blink, keyboard always cancels", "READY"],
+  ];
+  const $ = (id) => document.getElementById(id);
+  // Served by eeg_view.py at /console, MindArm runs for real: this page only sends keys and shows its events.
+  const LIVE = location.pathname === "/console";
+
+  const st = { phase: "IDLE", selected: null, plan: [], step: -1, joints: REST.slice(), calls: 0, pickups: 0,
+               cycles: 0, tokens: 0, cost: 0, titleClicks: 0, cheat: 0, sound: false };
+  let timers = [];
+  const after = (ms, fn) => timers.push(setTimeout(fn, ms));
+  const clearTimers = () => { timers.forEach(clearTimeout); timers = []; };
+
+  // Retro sound: short square-wave blips; off until the operator turns it on.
+  let audio = null;
+  function beep(freqs, len = 0.07, type = "square") {
+    if (!st.sound) return;
+    audio = audio || new AudioContext();
+    let t = audio.currentTime;
+    for (const f of freqs) {
+      const o = audio.createOscillator(), g = audio.createGain();
+      o.type = type; o.frequency.value = f; g.gain.setValueAtTime(0.05, t); g.gain.exponentialRampToValueAtTime(0.0001, t + len);
+      o.connect(g).connect(audio.destination); o.start(t); o.stop(t + len); t += len;
+    }
+  }
+
+  function lines(el, items, max, cls) {
+    const extra = el.children.length + items.length - max;
+    for (let i = 0; i < extra && el.firstChild; i++) el.removeChild(el.firstChild);
+    for (const text of items) { const d = document.createElement("div"); d.textContent = text; if (cls) d.className = cls; el.appendChild(d); }
+  }
+  const log = (t, cls) => lines($("log"), [t], 6, cls);
+  const say = (items) => lines($("out"), items, 6);
+
+  function account(call, op, status) {
+    const cost = call.p * PRICE_IN + call.c * PRICE_OUT;
+    st.tokens += call.p + call.c; st.cost += cost;
+    $("mTokens").textContent = st.tokens.toLocaleString("en-US");
+    $("mCost").textContent = "$" + st.cost.toFixed(4);
+    $("mLat").textContent = (call.ms / 1000).toFixed(1) + " s";
+    $("nemLat").textContent = "last " + (call.ms / 1000).toFixed(1) + " s · $" + cost.toFixed(4);
+    log(op + " · " + call.p + " in / " + call.c + " out · " + (call.ms / 1000).toFixed(2) + " s · " + status, status === "ok" ? "okl" : "badl");
+  }
+
+  function setNodes(active, flow, bad) {
+    document.querySelectorAll(".node").forEach((n) => {
+      const id = n.dataset.n;
+      n.classList.toggle("on", active.includes(id));
+      n.classList.toggle("flow", flow.includes(id));
+      n.classList.toggle("bad", bad === id);
+      n.classList.toggle("ok", !active.includes(id) && bad !== id && st.phase !== "IDLE");
+    });
+  }
+
+  function showJson(obj, bad) {
+    $("json").textContent = JSON.stringify(obj, null, 1).replace(/\n\s*/g, " ").replace(/\{ /g, "{").replace(/ \}/g, "}");
+    $("json").classList.toggle("badj", !!bad);
+  }
+  function showChecks(names, states) {
+    $("checks").replaceChildren(...names.map((n, i) => {
+      const d = document.createElement("div"); const s = states[i] || "";
+      d.className = "chk " + s; d.textContent = (s === "ok" ? "✓ " : s === "bad" ? "✗ " : s === "run" ? "▶ " : "· ") + n; return d;
+    }));
+  }
+  function verdict(text, cls) { $("verdict").textContent = text; $("verdict").className = "verdict " + (cls || ""); }
+  function runChecks(names, failAt, done) {
+    const states = names.map(() => "");
+    names.forEach((_, i) => after(220 * (i + 1), () => {
+      if (failAt === i) { states[i] = "bad"; showChecks(names, states); beep([140, 110], 0.12, "sawtooth"); return done(false); }
+      states[i] = "ok"; showChecks(names, states); beep([880], 0.03);
+      if (i === names.length - 1) done(true);
+    }));
+  }
+
+  function render() {
+    document.body.classList.toggle("selecting", st.phase === "SELECTING");
+    $("states").replaceChildren(...PHASES.map((p) => { const s = document.createElement("span"); s.textContent = p; if (p === st.phase) s.className = "on"; return s; }),
+      Object.assign(document.createElement("span"), { className: "sim", textContent: LIVE ? "live · MindArm · Nemotron · real arm" : "prototype · replaying the 2026-10-30 one-sponge session (options as Nemotron returned them)" }));
+    $("bEngage").textContent = st.phase === "IDLE" ? "[E] ENGAGE" : "[E] DISENGAGE";
+    $("armTxt").textContent = st.phase === "EXECUTING" ? (LIVE ? "moving · " : "replay · ") + (st.plan[st.step] || "") : st.phase === "IDLE" ? "holding HOME" : "holding";
+    const busy = st.phase === "PROPOSING" || st.phase === "PLANNING";
+    const stage = $("stage");
+    if (st.phase === "IDLE" || busy) {
+      const m = document.createElement("div"); m.className = "msg";
+      if (st.phase === "IDLE") {
+        const s = document.createElement("strong"); s.textContent = "ARM AT HOME · IDLE";
+        const p = document.createElement("span"); p.textContent = "press E: Nemotron reads the scene and proposes four goals";
+        m.append(s, p);
+      } else {
+        const p = document.createElement("span");
+        p.textContent = st.phase === "PROPOSING" ? "asking Nemotron for four options " : "planning motion for: " + (st.selected === null ? "selected option" : OPTS[st.selected][0]) + " ";
+        const c = document.createElement("span"); c.className = "cur"; c.textContent = "█"; p.appendChild(c); m.appendChild(p);
+      }
+      stage.replaceChildren(m);
+    } else {
+      const g = document.createElement("div"); g.className = "tiles";
+      OPTS.forEach((o, i) => {
+        const b = document.createElement("button"); b.type = "button";
+        b.className = "tile" + (st.selected === i && st.phase === "EXECUTING" ? " sel" : "");
+        const hz = document.createElement("span"); hz.className = "hz"; hz.textContent = "[" + (i + 1) + "] · " + o[2];
+        const l = document.createElement("span"); l.className = "lbl"; l.textContent = o[0];
+        const d = document.createElement("span"); d.textContent = o[1];
+        b.append(hz, l, d); b.addEventListener("click", () => pick(i)); g.appendChild(b);
+      });
+      stage.replaceChildren(g);
+    }
+    $("joints").replaceChildren(...st.joints.map((us, k) => {
+      const r = document.createElement("div"); r.className = "jt";
+      const n = document.createElement("span"); n.className = "n"; n.textContent = NAMES[k];
+      const bar = document.createElement("span"); bar.className = "bar";
+      const fill = document.createElement("i"); fill.style.width = Math.max(0, Math.min(100, (us - 1000) / 10)) + "%"; bar.appendChild(fill);
+      const v = document.createElement("span"); v.className = "us"; v.textContent = us + " µs";
+      r.append(n, bar, v); return r;
+    }));
+    const big = $("armBig");
+    if (st.phase === "EXECUTING" && st.step >= 0 && st.step < st.plan.length) { big.hidden = false; big.textContent = "▶ " + st.plan[st.step]; } else big.hidden = true;
+  }
+
+  function propose() {
+    Object.assign(st, { phase: "PROPOSING", selected: null, plan: [], step: -1 }); render();
+    setNodes(["mindarm", "nemotron"], ["mindarm", "nemotron"]); beep([660, 990]);
+    showJson({ request: "propose_options", scene: ["sponge"] }); verdict(""); showChecks(OPT_CHECKS, []); $("attempt").textContent = "";
+    const call = PROPOSE_CALLS[st.calls++ % PROPOSE_CALLS.length];
+    after(call.ms, () => {
+      account(call, "propose_options", "ok");
+      showJson({ options: OPTS.map((o) => ({ label: o[0], description: o[1] })) });
+      setNodes(["gate"], ["nemotron", "gate"]);
+      runChecks(OPT_CHECKS, -1, () => {
+        verdict("✓ options accepted", "ok");
+        st.phase = "SELECTING"; render(); setNodes(["intent"], []); beep([523, 659, 784]);
+      });
+    });
+  }
+  function mindKey(key) {
+    fetch("/mindarm/key", { method: "POST", body: key }).catch((err) => log("key not delivered: " + err.message, "badl"));
+  }
+  function mindState(phase) {
+    st.phase = phase;
+    if (phase === "PROPOSING") {
+      Object.assign(st, { selected: null, plan: [], step: -1 }); OPTS.length = 0;
+      setNodes(["mindarm", "nemotron"], ["mindarm", "nemotron"]); beep([660, 990]);
+      showJson({ request: "propose_options" }); verdict(""); showChecks(OPT_CHECKS, []); $("attempt").textContent = "";
+    } else if (phase === "SELECTING") {
+      setNodes(["intent"], []); showChecks(OPT_CHECKS, OPT_CHECKS.map(() => "ok")); verdict("✓ options accepted · blink twice to select", "ok"); beep([523, 659, 784]);
+    } else if (phase === "PLANNING") {
+      setNodes(["mindarm", "nemotron"], ["intent", "mindarm", "nemotron"]); beep([784, 1046]);
+      showJson({ request: "plan_motion", option: st.selected === null ? "" : OPTS[st.selected][0] }); verdict(""); showChecks(PLAN_CHECKS, []);
+    } else if (phase === "EXECUTING") {
+      setNodes(["jetson", "arm"], ["gate", "jetson", "arm"]); verdict("✓ plan accepted · no angles from the model", "ok");
+      showChecks(PLAN_CHECKS, ["ok", "ok", "ok", "run", "run"]);
+    } else {
+      Object.assign(st, { selected: null, step: -1, joints: REST.slice() }); setNodes([], []);
+    }
+    render();
+  }
+  function mindEvent(e) {
+    if (e.kind === "starting") { log("starting MindArm · connecting to the arm service"); verdict("arm service starting · servos go to HOME"); }
+    else if (e.kind === "state") mindState(e.state);
+    else if (e.kind === "option") {
+      const target = /sponge/i.test(e.label + " " + e.description) && e.label !== "Home";
+      OPTS[e.index] = [e.label, e.description, target ? "blink twice" : "key " + (e.index + 1), target ? "sponge" : ""];
+      if (e.index === 3) { showJson({ options: OPTS.map((o) => ({ label: o[0], description: o[1] })) }); render(); }
+    } else if (e.kind === "blink") {
+      log("double blink detected · " + e.text, "okl"); $("blinkTag").classList.add("on");
+      setTimeout(() => $("blinkTag").classList.remove("on"), 1500);
+    } else if (e.kind === "selected") { st.selected = e.index; log("gesture selected · " + OPTS[e.index][0], "okl"); }
+    else if (e.kind === "planner") account({ ms: e.ms, p: e.p, c: e.c }, e.operation, e.status === "valid" ? "ok" : e.status);
+    else if (e.kind === "executed") {
+      st.plan.push(e.action); st.step = st.plan.length - 1; st.joints = (POSES[e.action] || st.joints).slice(); render(); beep([330], 0.05);
+      $("armHud").textContent = "done · " + e.action + " · commanded targets shown below";
+    } else if (e.kind === "cycle") {
+      st.cycles++; $("mCycles").textContent = st.cycles; showJson({ primitives: e.plan }); showChecks(PLAN_CHECKS, PLAN_CHECKS.map(() => "ok"));
+      log("cycle " + st.cycles + " " + e.status + " · " + e.executed + " primitive(s) on the real arm", e.status === "completed" ? "okl" : "badl");
+      $("armHud").textContent = "cycle finished · arm returning HOME"; beep([523, 659, 784, 1046], 0.06);
+    } else if (e.kind === "error") { log(e.text, "badl"); verdict("✗ " + e.text, "bad"); }
+    else if (e.kind === "message") say([e.text]);
+    else if (e.kind === "exit") { log("MindArm exited · code " + e.code, e.code ? "badl" : "okl"); mindState("IDLE"); $("armHud").textContent = "arm at HOME · press E for another cycle"; }
+  }
+  function mindConnect() {
+    document.querySelector('[data-n="intent"] .v').textContent = "double blink · live";
+    document.querySelector('[data-n="intent"] .s').textContent = "electrodes · not brain activity";
+    $("stage").previousElementSibling.textContent = "OPTIONS FROM NEMOTRON · BLINK TWICE TO SELECT";
+    $("footNote").textContent = "double-blink command captured by electrodes · not brain activity · not a medical device";
+    document.querySelector(".note").textContent = "Intent input: voluntary double blink captured by electrodes, not brain activity. E cancels and returns HOME. Q quits.";
+    new EventSource("/mindarm/events").onmessage = (m) => mindEvent(JSON.parse(m.data));
+  }
+  function engage() {
+    if (LIVE) return mindKey("e");
+    if (st.phase === "IDLE") return propose();
+    clearTimers();
+    Object.assign(st, { phase: "IDLE", selected: null, plan: [], step: -1, joints: REST.slice() }); render();
+    setNodes([], []); verdict("disengaged · arm sent HOME", "ok"); beep([440, 220]);
+    log("disengaged by operator · arm sent HOME");
+  }
+  function pick(i) {
+    if (st.phase !== "SELECTING") return;
+    if (LIVE) { st.selected = i; return mindKey(String(i + 1)); }
+    Object.assign(st, { phase: "PLANNING", selected: i }); render();
+    setNodes(["mindarm", "nemotron"], ["intent", "mindarm", "nemotron"]); beep([784, 1046]);
+    showJson({ request: "plan_motion", option: OPTS[i][0] }); verdict(""); showChecks(PLAN_CHECKS, []);
+    if (!OPTS[i][3]) return planAttempt(i, { ms: 1283, p: 607, c: 181 }, { primitives: [{ action: "HOME" }] }, null, 1);
+    const obj = OPTS[i][3];
+    if (st.pickups++ === 0) {
+      const invalid = { primitives: [{ action: "MOVE_ABOVE", object_label: obj }, { action: "GRASP", object_label: obj }, { action: "LIFT", object_label: obj }] };
+      return planAttempt(i, { ms: 2981, p: 614, c: 423 }, invalid, "object_label is only allowed on MOVE_ABOVE (GRASP, LIFT)", 1);
+    }
+    const plan = { primitives: [{ action: "MOVE_ABOVE", object_label: obj }, { action: "GRASP" }, { action: "LIFT" }, { action: "MOVE_TO_POSE", pose_name: "handover" }, { action: "RELEASE" }] };
+    planAttempt(i, { ms: 2400, p: 614, c: 410 }, plan, null, 1);
+  }
+  function planAttempt(i, call, plan, error, attempt) {
+    $("attempt").textContent = "ATTEMPT " + attempt + "/2";
+    after(call.ms, () => {
+      account(call, "plan_motion", error ? "invalid" : "ok");
+      showJson(plan, !!error); setNodes(["gate"], ["nemotron", "gate"]);
+      runChecks(PLAN_CHECKS, error ? 1 : -1, (ok) => {
+        if (!ok) {
+          verdict("✗ rejected: " + error + " · sending repair prompt", "bad"); setNodes(["nemotron"], ["gate", "nemotron"], "gate");
+          const fixed = { primitives: plan.primitives.map((p) => p.action === "MOVE_ABOVE" ? p : { action: p.action }) };
+          return after(900, () => planAttempt(i, { ms: 1955, p: 779, c: 368 }, fixed, null, 2));
+        }
+        verdict("✓ plan accepted · " + plan.primitives.length + " primitive(s) · no angles from the model", "ok");
+        const steps = plan.primitives.map((p) => p.action + (p.object_label ? " " + p.object_label : p.pose_name ? " " + p.pose_name : ""));
+        Object.assign(st, { phase: "EXECUTING", plan: steps, step: 0 });
+        setNodes(["jetson", "arm"], ["gate", "jetson", "arm"]);
+        run(steps, 0);
+      });
+    });
+  }
+  function run(steps, k) {
+    Object.assign(st, { step: k, joints: POSES[steps[k].split(" ")[0]].slice() }); render(); beep([330], 0.05);
+    $("armHud").textContent = "primitive " + (k + 1) + "/" + steps.length + " · ramp at ≤ max speed · service envelope enforced";
+    after(1400, () => {
+      if (k + 1 < steps.length) return run(steps, k + 1);
+      st.step = steps.length; st.cycles++; $("mCycles").textContent = st.cycles; render();
+      $("armHud").textContent = "replay complete · this page does not command the arm"; beep([523, 659, 784, 1046], 0.06);
+      log("cycle " + st.cycles + " completed · " + steps.length + " primitive(s) replayed · real arm not commanded", "okl");
+      after(1200, propose);
+    });
+  }
+  function toggleFlicker() {
+    const on = document.body.classList.toggle("flicker");
+    $("bFlicker").textContent = "[F] FLICKER: " + (on ? "ON" : "OFF"); $("bFlicker").setAttribute("aria-pressed", String(on));
+  }
+  function toggleSound() {
+    st.sound = !st.sound; $("bSound").textContent = "[S] SOUND: " + (st.sound ? "ON" : "OFF"); $("bSound").setAttribute("aria-pressed", String(st.sound));
+    beep([523, 784]);
+  }
+  function egg(text) { $("eggText").textContent = text; $("egg").hidden = false; beep([523, 659, 784, 1046, 1318], 0.08); setTimeout(() => { $("egg").hidden = true; }, 2400); }
+
+  function runCommand(raw) {
+    const c = raw.trim().toLowerCase();
+    if (c === "clear") return $("out").replaceChildren();
+    const out = ["> " + c];
+    if (c === "help") out.push("help · status · nemotron · safety · coffee · tint · clear");
+    else if (c === "status") out.push("phase " + st.phase.toLowerCase() + " · cycles " + st.cycles + " · cost $" + st.cost.toFixed(4));
+    else if (c === "nemotron") out.push("NEMOTRON 3 SUPER 120B (12B active) · Nebius Token Factory", "role: propose goals + plan from a closed vocabulary");
+    else if (c === "safety") out.push("model → schema → vocabulary → scene → limits+speed → Jetson envelope", "the model never outputs angles, pulses or speeds");
+    else if (c === "coffee") out.push("418: I am a teapot. This arm only hands things over.");
+    else if (c === "tint") out.push("camera phosphor tint " + (document.body.classList.toggle("tint") ? "on" : "off"));
+    else if (c) out.push("command not found: " + c + " · try help");
+    say(out);
+  }
+
+  // Cameras: the operator view mirrors the laptop webcam; the arm view uses a second camera here (the Jetson UVC in the real build).
+  const streams = {};
+  async function startCam(which, deviceId) {
+    const video = $(which === "op" ? "vOp" : "vArm"), ph = $(which === "op" ? "phOp" : "phArm");
+    if (streams[which]) { streams[which].getTracks().forEach((t) => t.stop()); delete streams[which]; }
+    video.srcObject = null;
+    if (!deviceId) { ph.hidden = false; return; }
+    const other = which === "op" ? "arm" : "op";
+    try {
+      const shared = streams[other] && streams[other].getVideoTracks()[0].getSettings().deviceId === deviceId;
+      streams[which] = shared ? streams[other].clone() : await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: deviceId }, width: 1280, height: 720 }, audio: false });
+      video.srcObject = streams[which]; ph.hidden = true;
+    } catch (err) { ph.hidden = false; ph.textContent = "camera unavailable: " + err.name; }
+  }
+  async function enableCams() {
+    try { (await navigator.mediaDevices.getUserMedia({ video: true, audio: false })).getTracks().forEach((t) => t.stop()); }
+    catch (err) { return say(["camera permission: " + err.name]); }
+    const cams = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "videoinput");
+    for (const [sel, which] of [[$("selOp"), "op"], [$("selArm"), "arm"]]) {
+      sel.replaceChildren(new Option("none", ""), ...cams.map((c, i) => new Option(c.label || "camera " + (i + 1), c.deviceId)));
+      sel.onchange = () => startCam(which, sel.value);
+    }
+    const laptop = cams.find((c) => /integrated|webcam|hd camera|built-in/i.test(c.label)) || cams[0];
+    const arm = cams.find((c) => c !== laptop);
+    if (laptop) { $("selOp").value = laptop.deviceId; await startCam("op", laptop.deviceId); }
+    if (arm && location.pathname !== "/console") { $("selArm").value = arm.deviceId; await startCam("arm", arm.deviceId); }
+    say([cams.length + " camera(s) found"]);
+  }
+
+  // Live EEG: eeg_view.py serves this page at /console and streams real samples at /stream.
+  const EEG_RATE = 250, EEG_N = EEG_RATE * 10;
+  const CAL_PHASES = [
+    ["baseline", "Eyes open. Stay still and look at one point.", 10],
+    ["blinks", "Blink hard each time BLINK NOW appears.", 10],
+    ["jaw", "Clench your jaw.", 5],
+    ["rest", "Relax your jaw. Eyes open, stay still.", 5],
+    ["eyes_closed", "Close your eyes and relax until the beeps.", 15],
+  ];
+  const eeg = { live: false, buf: new Float32Array(EEG_N), head: 0, filled: 0, threshold: null, meta: null, rec: null };
+
+  function eegSummary(x) {
+    let sum = 0, lo = Infinity, hi = -Infinity;
+    for (const v of x) { sum += v; lo = Math.min(lo, v); hi = Math.max(hi, v); }
+    const mean = sum / x.length;
+    let power = 0;
+    for (const v of x) power += (v - mean) ** 2;
+    return { mean, lo, hi, rms: Math.sqrt(power / x.length) };
+  }
+  // Amplitude at one frequency with a Hann window (coherent gain 0.5).
+  function eegAmp(x, f, rate) {
+    let re = 0, im = 0;
+    const n = x.length;
+    for (let i = 0; i < n; i++) {
+      const w = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (n - 1)), a = 2 * Math.PI * f * i / rate;
+      re += x[i] * w * Math.cos(a); im -= x[i] * w * Math.sin(a);
+    }
+    return Math.sqrt(re * re + im * im) * 4 / n;
+  }
+  function eegSpectrum(x, rate) {
+    const { mean } = eegSummary(x), y = x.map((v) => v - mean);
+    let alpha = 0, total = 0;
+    for (let f = 1; f <= 45; f += 0.5) {
+      const p = eegAmp(y, f, rate) ** 2;
+      total += p;
+      if (f >= 8 && f <= 13) alpha += p;
+    }
+    return { alpha: total ? 100 * alpha / total : 0, mains: eegAmp(y, 60, rate) * 1000 };
+  }
+  function eegNotch(x, f, rate) {
+    const q = 8, w = 2 * Math.PI * f / rate, alpha = Math.sin(w) / (2 * q), a0 = 1 + alpha;
+    const b0 = 1 / a0, b1 = -2 * Math.cos(w) / a0, a2 = (1 - alpha) / a0, out = new Float32Array(x.length);
+    let x1 = x[0], x2 = x[0], y1 = x[0], y2 = x[0];
+    for (let i = 0; i < x.length; i++) {
+      const y = b0 * x[i] + b1 * x1 + b0 * x2 - b1 * y1 - a2 * y2;
+      x2 = x1; x1 = x[i]; y2 = y1; y1 = y; out[i] = y;
+    }
+    return out;
+  }
+  // Mains interference out; the first 0.25 s is the filter settling, so it is dropped.
+  function eegClean(x, rate) {
+    return eegNotch(eegNotch(x, 60, rate), 120, rate).subarray(Math.floor(rate / 4));
+  }
+  // Signed distance from a 1 s moving average: slow drift is gone, blinks keep their shape.
+  function eegDetrend(x, rate) {
+    const half = Math.floor(rate / 2), out = new Float32Array(x.length);
+    let sum = 0, lo = 0, hi = 0;
+    for (let i = 0; i < x.length; i++) {
+      while (hi < Math.min(x.length, i + half)) sum += x[hi++];
+      while (lo < i - half) sum -= x[lo++];
+      out[i] = x[i] - sum / (hi - lo);
+    }
+    return out;
+  }
+  function eegDeviation(x, rate) {
+    return eegDetrend(x, rate).map((value) => Math.abs(value));
+  }
+  function calAnalyze(samples, rate, phases) {
+    let at = 0;
+    const slices = {};
+    const rows = phases.map(([phase, , seconds]) => {
+      const x = Float32Array.from(samples.slice(at, at + seconds * rate));
+      at += seconds * rate;
+      slices[phase] = x;
+      const s = eegSummary(x), spectra = [];
+      for (let i = 0; i + 2 * rate <= x.length; i += rate) spectra.push(eegSpectrum(x.subarray(i, i + 2 * rate), rate));
+      const mean = (k) => spectra.reduce((a, w) => a + w[k], 0) / spectra.length;
+      return { phase, seconds, mean_v: s.mean, pp_mv: (s.hi - s.lo) * 1000, rms_mv: s.rms * 1000,
+               alpha_pct: mean("alpha"), mains_mv: mean("mains") };
+    });
+    const quiet = Array.from(eegDeviation(eegClean(slices.baseline, rate), rate)).sort((a, b) => a - b);
+    const noise = quiet[Math.floor(quiet.length * 0.99)] * 1000;
+    const moved = eegDeviation(eegClean(slices.blinks, rate), rate), peaks = [];
+    for (let i = 0; i + 2 * rate <= moved.length; i += 2 * rate) peaks.push(Math.max(...moved.subarray(i, i + 2 * rate)) * 1000);
+    peaks.sort((a, b) => a - b);
+    const blink = peaks[Math.floor(peaks.length / 2)];
+    const clipped = samples.filter((v) => v <= 0.05 || v >= 3.25).length;
+    return { rows, noise_mv: noise, blink_mv: blink, threshold_mv: (noise + blink) / 2, separable: blink >= 1 && blink >= 3 * noise,
+             alpha_ratio: rows.find((r) => r.phase === "eyes_closed").alpha_pct / rows.find((r) => r.phase === "baseline").alpha_pct,
+             clipped_pct: 100 * clipped / samples.length };
+  }
+  function eegRecent(n) {
+    n = Math.min(n, eeg.filled);
+    const out = new Float32Array(n);
+    for (let i = 0; i < n; i++) out[i] = eeg.buf[(eeg.head - n + i + EEG_N) % EEG_N];
+    return out;
+  }
+  const EEG_SPAN_V = 0.8;
+  function eegRender() {
+    if (eeg.filled < EEG_RATE) return;
+    const clean = eegClean(eegRecent(EEG_RATE * 6), EEG_RATE), x = eegDetrend(clean, EEG_RATE);
+    const s = eegSummary(clean), pts = [];
+    // Fixed scale so a blink does not rescale the trace; each pixel keeps its strongest sample.
+    for (let i = 0; i < 300; i++) {
+      const bin = x.subarray(Math.floor(i * x.length / 300), Math.floor((i + 1) * x.length / 300));
+      const peak = bin.reduce((best, value) => Math.abs(value) > Math.abs(best) ? value : best, 0);
+      pts.push(i + "," + (60 - Math.max(-1, Math.min(1, peak / EEG_SPAN_V)) * 54).toFixed(1));
+    }
+    $("e1").setAttribute("points", pts.join(" ")); $("e2").setAttribute("points", "");
+    const railed = s.mean >= 3.2 || s.mean <= 0.1;
+    $("eegNote").textContent = eeg.lost ? "stream lost · reconnecting" : railed ? "SIGNAL STUCK AT RAIL · CHECK ELECTRODES" : LIVE ? "real signal, filtered · a double blink selects the sponge" : "real signal, filtered · not decoded into intent";
+    $("eegNote").classList.toggle("warn", eeg.lost || railed);
+    if (eeg.threshold !== null) $("blinkTag").classList.toggle("on", Math.max(...eegDeviation(eegClean(eegRecent(EEG_RATE * 2), EEG_RATE), EEG_RATE).slice(-25)) > eeg.threshold);
+    if (tick % 4) return;
+    const spectrum = eegSpectrum(eegRecent(EEG_RATE * 2), EEG_RATE), second = eegSummary(eegRecent(EEG_RATE));
+    $("eegStats").textContent = `${s.mean.toFixed(3)} V · ${((second.hi - second.lo) * 1000).toFixed(1)} mV pp · alpha ${spectrum.alpha.toFixed(0)} % · 60 Hz ${spectrum.mains.toFixed(2)} mV · ${eeg.meta.rate.toFixed(0)} Hz · err ${eeg.meta.err}`;
+  }
+  function calTick() {
+    const rec = eeg.rec, elapsed = rec.samples.length / EEG_RATE;
+    if (elapsed >= CAL_PHASES.reduce((a, p) => a + p[2], 0)) return calFinish();
+    let start = 0, i = 0;
+    while (elapsed >= start + CAL_PHASES[i][2]) start += CAL_PHASES[i++][2];
+    const [name, text, seconds] = CAL_PHASES[i], t = elapsed - start;
+    if (i !== rec.phase) { rec.phase = i; beep([660]); }
+    const blinkNow = name === "blinks" && t % 2 >= 1 && t % 2 < 1.5;
+    if (blinkNow && !rec.prompted) beep([880]);
+    rec.prompted = blinkNow;
+    $("calTitle").textContent = `PHASE ${i + 1}/${CAL_PHASES.length} · ${Math.ceil(seconds - t)} S`;
+    $("calText").textContent = blinkNow ? "BLINK NOW" : text;
+  }
+  async function calFinish() {
+    const { samples } = eeg.rec;
+    eeg.rec = null;
+    const result = calAnalyze(samples, EEG_RATE, CAL_PHASES);
+    eeg.threshold = result.separable ? result.threshold_mv / 1000 : null;
+    beep([660, 880, 1046]);
+    $("calTitle").textContent = "EEG CALIBRATION · DONE";
+    $("calText").textContent = result.separable ? "Blink detection is calibrated." : "Blinks did not stand out from the noise. Check the electrode contact and run it again.";
+    const table = $("calTable");
+    table.replaceChildren();
+    const row = (tag, cells) => { const r = table.insertRow(); cells.forEach((c) => { const e = document.createElement(tag); e.textContent = c; r.append(e); }); };
+    row("th", ["phase", "pp mV", "rms mV", "alpha %", "60 Hz mV"]);
+    result.rows.forEach((r) => row("td", [r.phase, r.pp_mv.toFixed(1), r.rms_mv.toFixed(2), r.alpha_pct.toFixed(0), r.mains_mv.toFixed(2)]));
+    table.hidden = false;
+    $("bCalGo").hidden = false; $("bCalGo").textContent = "RUN AGAIN";
+    const info = `blink ${result.blink_mv.toFixed(1)} mV · noise ${result.noise_mv.toFixed(1)} mV · threshold ${result.threshold_mv.toFixed(1)} mV · alpha closed/open ${result.alpha_ratio.toFixed(2)}x · clipped ${result.clipped_pct.toFixed(1)} %`;
+    $("calInfo").textContent = info;
+    try {
+      const saved = await fetch("/calibration", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rate: EEG_RATE, phases: CAL_PHASES, result, samples }) });
+      $("calInfo").textContent = `${info} · saved ${(await saved.json()).file}`;
+    } catch (error) { $("calInfo").textContent = `${info} · not saved: ${error.message}`; }
+  }
+  function calStart() {
+    if (!st.sound) toggleSound();
+    $("calTable").hidden = true; $("bCalGo").hidden = true; $("calInfo").textContent = "";
+    eeg.rec = { samples: [], phase: -1, prompted: false };
+    $("calText").textContent = "Starting…";
+  }
+  function eegConnect() {
+    const stream = new EventSource("/stream");
+    stream.onerror = () => { eeg.lost = true; };
+    stream.onmessage = (event) => {
+      const m = JSON.parse(event.data);
+      if (!eeg.live) {
+        eeg.live = true;
+        $("eegTitle").textContent = `CH${m.ch} LIVE`;
+        $("eegStats").hidden = false; $("bCal").hidden = false;
+      }
+      eeg.lost = false;
+      eeg.meta = m;
+      for (const v of m.s) { eeg.buf[eeg.head] = v; eeg.head = (eeg.head + 1) % EEG_N; if (eeg.filled < EEG_N) eeg.filled++; }
+      if (eeg.rec) { eeg.rec.samples.push(...m.s); calTick(); }
+    };
+  }
+  function jetsonCam() {
+    const img = $("imgArm");
+    img.onerror = () => { img.hidden = true; $("phArm").hidden = false; $("phArm").textContent = "Jetson camera unavailable"; };
+    img.hidden = false; $("phArm").hidden = true; img.src = "/camera";
+    $("selArm").hidden = true;
+    document.body.classList.add("live");
+  }
+  if (LIVE) { eegConnect(); jetsonCam(); mindConnect(); }
+  $("bCal").addEventListener("click", () => { $("cal").hidden = false; });
+  $("bCalGo").addEventListener("click", calStart);
+  $("bCalClose").addEventListener("click", () => { eeg.rec = null; $("cal").hidden = true; });
+
+  // Simulated EEG: two scrolling channels with a periodic blink on CH1.
+  let tick = 0;
+  function eegPath(ch) {
+    const pts = [];
+    for (let i = 0; i <= 150; i++) {
+      const t = (i + tick * 6) / 50;
+      let y = 30 + 9 * Math.sin(2 * Math.PI * (ch ? 1.3 : 1) * t) + 6 * Math.sin(17.3 * t + ch) + 4 * Math.sin(41.7 * t * (ch + 1));
+      if (ch === 0) { const b = (i + tick * 6) % 230; if (b > 100 && b < 112) y -= 20 * Math.sin(Math.PI * (b - 100) / 12); }
+      pts.push(i * 2 + "," + (y + ch * 60).toFixed(1));
+    }
+    return pts.join(" ");
+  }
+  setInterval(() => {
+    tick++;
+    if (eeg.live) return eegRender();
+    $("e1").setAttribute("points", eegPath(0)); $("e2").setAttribute("points", eegPath(1));
+    const b = (150 + tick * 6) % 230; $("blinkTag").classList.toggle("on", b > 96 && b < 120);
+  }, 120);
+  setInterval(() => { const t = new Date().toLocaleTimeString("en-GB"); document.querySelectorAll(".clock").forEach((c) => { c.textContent = t; }); }, 1000);
+
+  // Boot screen: the hardware checks recorded in the SPEC, typed line by line; any key or click skips it.
+  let booted = false;
+  function endBoot() { if (booted) return; booted = true; $("boot").classList.add("gone"); setTimeout(() => { $("boot").hidden = true; }, 520); }
+  BOOT.forEach(([text, status], i) => setTimeout(() => {
+    if (booted) return;
+    const d = document.createElement("div"); d.textContent = text + " ";
+    const s = document.createElement("span"); s.className = status === "OK" ? "okw" : "arm"; s.textContent = "[" + status + "]";
+    d.appendChild(s); $("bootLines").appendChild(d);
+  }, 260 * (i + 1)));
+  setTimeout(endBoot, 260 * (BOOT.length + 3));
+  $("boot").addEventListener("click", endBoot);
+
+  $("bEngage").addEventListener("click", engage);
+  $("bFlicker").addEventListener("click", toggleFlicker);
+  $("bSound").addEventListener("click", toggleSound);
+  $("bCams").addEventListener("click", enableCams);
+  $("title").addEventListener("click", () => {
+    if (++st.titleClicks < 5) return;
+    st.titleClicks = 0;
+    say([document.body.classList.toggle("green") ? "phosphor P1 green engaged" : "phosphor P3 amber restored"]);
+  });
+  $("cmd").addEventListener("keydown", (e) => { if (e.key === "Enter") { runCommand(e.target.value); e.target.value = ""; } });
+  document.addEventListener("keydown", (e) => {
+    if (!booted) return endBoot();
+    if (!$("cal").hidden) return;
+    st.cheat = e.key === CHEAT[st.cheat] ? st.cheat + 1 : (e.key === CHEAT[0] ? 1 : 0);
+    if (st.cheat === CHEAT.length) { st.cheat = 0; return egg("CHEAT CODE ACCEPTED · +30 LIVES · SAME SAFE SPEED"); }
+    if (e.target === $("cmd") || e.ctrlKey || e.metaKey || e.altKey) return;
+    const k = e.key.toLowerCase();
+    if (k === "e") engage(); else if (k === "f") toggleFlicker(); else if (k === "s") toggleSound();
+    else if (LIVE && k === "q") mindKey("q");
+    else if (["1", "2", "3", "4"].includes(k)) pick(Number(k) - 1);
+  });
+
+  say(["MINDARM v0.1 · type help"]);
+  showChecks(PLAN_CHECKS, []);
+  render();
+</script>
+</body>
+</html>

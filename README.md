@@ -6,10 +6,13 @@ hard safety limits.**
 
 Solo entry for the Nebius x NVIDIA Global AI Hackathon, Physical AI track.
 
-> **Honest status of this build.** The arm is real and moves through Nemotron-generated,
-> validated plans on a Jetson Nano. Intent selection is a **keyboard-driven simulation**:
-> the EEG hardware is wired and verified, but no decoder turns brain signals into choices
-> yet. This is a supervised tabletop prototype, not a medical or assistive device.
+> **Status of this build.** The arm is real and moves through Nemotron-generated, validated
+> plans on a Jetson Nano. Intent selection defaults to a **keyboard-driven simulation**. An
+> optional **double-blink detector** selects one configured object: a blink is eye movement
+> captured by electrodes, not brain activity, and no decoder turns brain signals into choices
+> yet. In a cued test it caught 8 of 10 double blinks, with some false detections still to
+> reduce, and reliable grasping is the main open item. This is a supervised tabletop
+> prototype, not a medical or assistive device, with no clinical validation.
 
 Demo video: [VIDEO LINK]
 
@@ -33,7 +36,7 @@ not a claim.
 
 ```mermaid
 flowchart LR
-    I["Intent<br/>4 options<br/>(keyboard-simulated today)"] --> O["MindArm orchestrator<br/>laptop"]
+    I["Intent<br/>4 options<br/>(keyboard or double blink today)"] --> O["MindArm orchestrator<br/>laptop"]
     O -- "scene + request" --> N["Nemotron 3 Super<br/>Nebius Token Factory"]
     N -- "options / plan as JSON" --> G{"Safety gate<br/>schema · vocabulary ·<br/>scene · limits · speed"}
     G -- "invalid: one repair prompt" --> N
@@ -50,7 +53,8 @@ the two.
 1. **Engage** (key `e`). MindArm reads the scene; today it comes from a fixture of the
    objects on the table.
 2. **Propose.** Nemotron returns exactly four distinct options as JSON, one of them `Home`.
-3. **Select** (keys `1`–`4`). In the planned BCI, looking at a flickering tile selects it.
+3. **Select** (keys `1`–`4`, or an optional double blink that selects the configured object).
+   In the planned BCI, looking at a flickering tile selects it.
 4. **Plan.** Nemotron maps the option to primitives: `MOVE_ABOVE <object>`, `GRASP`, `LIFT`,
    `MOVE_TO_POSE handover`, `RELEASE`, `HOME`. It never outputs angles, pulses, or speeds.
 5. **Validate.** The plan must pass the JSON schema, the closed vocabulary, and the
@@ -146,12 +150,12 @@ only stops are disengage/quit and cutting the servo supply. See "Open risks" in 
 | NVIDIA Jetson Nano 4GB (L4T R32.7.5) | Runs the arm service; drives the servos over I2C |
 | PCA9685 at 0x40 on I2C bus 1 | 50 Hz servo PWM; servo power from a separate 5 V 10 A supply |
 | USB UVC camera on the Jetson | Live view while teaching poses; planned input for perception |
-| 2× AD8232 + 2× ADS1115 (0x48, 0x49) on I2C bus 0 | Two-channel EEG acquisition at 250 Hz; verified, not yet used for intent |
-| Laptop | Orchestrator, Nemotron calls, keyboard intent; reaches the Jetson over the micro-USB network link |
+| 2× AD8232 + 2× ADS1115 (0x48, 0x49) on I2C bus 0 | Two-channel acquisition at 250 Hz; one forehead channel feeds the optional double-blink detector |
+| Laptop | Orchestrator, Nemotron calls, keyboard and double-blink intent, operator console; reaches the Jetson over the micro-USB network link |
 
 The laptop talks to the Jetson only over SSH stdin/stdout. The Jetson keeps its firewall and
-disabled port forwarding. The Jetson runs Python 3.6 with only `python3-smbus`. Before EEG
-electrodes go on a person, the sensors need galvanic isolation from mains-powered equipment.
+disabled port forwarding. The Jetson runs Python 3.6 with only `python3-smbus`. The EEG front
+end has no galvanic isolation yet; read the warning under "Double-blink console" first.
 
 ## Run it
 
@@ -177,7 +181,25 @@ and disengage, or `q` to quit. `--once` runs a single cycle.
 `python -m mindarm.teach` serves a local page (127.0.0.1:8766) with the Jetson camera, joint
 sliders, and buttons to save the taught poses into `config/jetson_arm.yaml`.
 
-**Tests:** `pytest` runs the offline suite (106 tests, network blocked). `pytest -m integration`
+**Double-blink console:**
+
+> **Warning.** The EEG front end has no galvanic isolation, and this is not a medical device.
+> Electrodes on a person are only allowed while everything runs on battery, including the
+> servo supply. See risk 10 in `docs/SPEC.md`.
+
+1. Copy `jetson/eeg_live.py` to the Jetson's home directory, next to `mindarm_arm.py`.
+2. Run `python tools/eeg_view.py` (add `2` for the second channel) and open
+   <http://localhost:8765/console>. Like the arm path, it is set up for a Windows laptop and
+   the SSH alias `jetson-usb`.
+3. Press `e` on the page. The first press starts MindArm with `config/mindarm_live.yaml`
+   (`eeg: stream`, `decoder: blink`, `arm: jetson`), which energizes the arm. When the four
+   options appear, a double blink selects the sponge; keys `1`–`4` still work. `e` cancels and
+   returns HOME, and `q` quits.
+
+`tools/console.html` opened as a plain file is a simulated replay that never commands the arm.
+`pytest tests/test_gesture.py` exercises the gesture path offline, without electrodes.
+
+**Tests:** `pytest` runs the offline suite (120 tests, network blocked). `pytest -m integration`
 calls the real API and fails if either operation needed the fallback.
 
 **Benchmark:** `python -m mindarm.bench --n 10` runs N proposals and N plans through the live
@@ -198,16 +220,19 @@ call) and, when EEG is enabled, `recordings/<session-id>.npz`.
 | `src/mindarm/orchestrator.py` | State machine: IDLE → PROPOSING → SELECTING → PLANNING → EXECUTING |
 | `src/mindarm/planner/` | Nemotron planner, prompts, offline planner |
 | `src/mindarm/arm/` | Simulated arm and the Jetson arm adapter |
-| `jetson/mindarm_arm.py` | The service deployed on the Jetson |
-| `src/mindarm/eeg/` | Synthetic EEG, NPZ recording and replay |
-| `config/` | Settings, simulator limits, real-arm limits and taught poses (µs) |
+| `src/mindarm/decoder/` | Keyboard decoder and the double-blink detector |
+| `jetson/` | What runs on the Jetson: the arm service and the EEG streamer |
+| `src/mindarm/eeg/` | Synthetic EEG, NPZ recording and replay, live stream source |
+| `tools/` | Operator console: server and page |
+| `config/` | Settings, console settings, simulator limits, real-arm limits and taught poses (µs) |
 | `docs/SPEC.md` | Source of truth: contracts, safety behavior, measurements, open risks |
 
 ## What is new for this hackathon
 
 The 3D-printed arm existed before August 26, 2026. Everything else is new work for this entry:
 the orchestrator, the Nemotron planner and its validation, the Jetson arm service and safety
-envelope, the pose teaching tool, the EEG acquisition stack, and the hardware integration.
+envelope, the pose teaching tool, the EEG acquisition stack, the double-blink detector, the
+operator console, and the hardware integration.
 
 ## Prior work
 
@@ -251,8 +276,9 @@ What slowed us down:
 ## Roadmap
 
 1. Perception from the Jetson camera with Nemotron 3.5 Super VL.
-2. A web operator console with the flickering SSVEP option tiles.
-3. Galvanic isolation for the EEG front end, then SSVEP and alpha decoding from recordings.
+2. A repeatable grasp, with a measured success rate.
+3. Galvanic isolation for the EEG front end, a held-out blink test, then flickering SSVEP tiles
+   in the console and brain-signal decoding validated on recordings.
 4. Stable object IDs, so two objects with the same label can be told apart.
 5. Batch evaluation of the planner over recorded scenes as a Nebius Serverless Job, tracking
    validity, latency, and cost per model.
