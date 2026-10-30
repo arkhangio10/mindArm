@@ -146,7 +146,7 @@ only stops are disengage/quit and cutting the servo supply. See "Open risks" in 
 
 | Part | Role |
 | --- | --- |
-| 3D-printed 6-DOF arm (built before Aug 26, 2026) | base, shoulder, elbow (MG996R), wrist pitch and roll (MG90S), gripper (SG90) |
+| 3D-printed 6-DOF arm, designed for this hackathon | base, shoulder, elbow (MG996R), wrist pitch and roll (MG90S), gripper (SG90) |
 | NVIDIA Jetson Nano 4GB (L4T R32.7.5) | Runs the arm service; drives the servos over I2C |
 | PCA9685 at 0x40 on I2C bus 1 | 50 Hz servo PWM; servo power from a separate 5 V 10 A supply |
 | USB UVC camera on the Jetson | Live view while teaching poses; planned input for perception |
@@ -229,8 +229,8 @@ call) and, when EEG is enabled, `recordings/<session-id>.npz`.
 
 ## What is new for this hackathon
 
-The 3D-printed arm existed before August 26, 2026. Everything else is new work for this entry:
-the orchestrator, the Nemotron planner and its validation, the Jetson arm service and safety
+Everything is new work for this entry, built during the submission period: the 3D-printed arm,
+designed for this hackathon, the orchestrator, the Nemotron planner and its validation, the Jetson arm service and safety
 envelope, the pose teaching tool, the EEG acquisition stack, the double-blink detector, the
 operator console, and the hardware integration.
 

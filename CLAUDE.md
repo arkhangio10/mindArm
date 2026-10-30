@@ -18,7 +18,8 @@ as any model, interface, state-machine, configuration, or safety behavior change
 - Record measurements and open risks in SPEC. Keep session JSONL and NPZ replay compatible.
 - Describe the project as "brain-controlled through intent selection". Identify this step
   as a keyboard-driven simulation; do not imply real brain control or clinical validation.
-- Preserve the prior-work citation and the August 26, 2026 hardware/software distinction.
+- Preserve the prior-work citation. The arm was designed for this hackathon and, like the
+  software, built during the submission period; never describe it as pre-existing.
   Do not add third-party branding, logos, or character names.
 
 Development (from this directory):
