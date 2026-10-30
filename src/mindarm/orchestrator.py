@@ -191,6 +191,14 @@ class Orchestrator:
             self.last_error = None
             self._transition(State.PROPOSING)
 
+    def _target_index(self) -> int | None:
+        """Resolve a gesture to the one non-Home option that mentions the configured target label."""
+        target = self.settings.target_label.casefold()
+        matches = [index for index, option in enumerate(self._options)
+                   if option.label != "Home" and (target in option.label.casefold()
+                                                  or target in option.description.casefold())]
+        return matches[0] if len(matches) == 1 else None
+
     def tick(self) -> None:
         """Process one input event, acquisition block, and bounded state action."""
         if not self.running:
@@ -207,10 +215,17 @@ class Orchestrator:
                     else:
                         self._disengage("toggle")
                     return
-                if event.kind == "SELECT" and self.state == State.SELECTING:
-                    self._selection = event.index
+                if event.kind in ("SELECT", "SELECT_TARGET") and self.state == State.SELECTING:
+                    index = event.index if event.kind == "SELECT" else self._target_index()
+                    if index is None:
+                        self._emit(f"Gesture ignored: no single option mentions '{self.settings.target_label}'")
+                        self.log.write({"type": "gesture_ignored", "target_label": self.settings.target_label})
+                        return
+                    if event.kind == "SELECT_TARGET":
+                        self._emit(f"Gesture selected {index + 1}. {self._options[index].label}")
+                    self._selection = index
                     assert self._cycle is not None
-                    self._cycle["selection"] = event.index
+                    self._cycle["selection"] = index
                     self._transition(State.PLANNING)
                     return
             if self.state == State.IDLE:

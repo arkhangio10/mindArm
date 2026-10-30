@@ -7,13 +7,22 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class PlannerOperation(BaseModel):
+    """Per-operation model call options; none of them can set a motion parameter."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reasoning: bool
+    strict_schema: bool = True
+
+
 class Settings(BaseModel):
     """Select implementations and configure only walking-skeleton features."""
 
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
-    eeg: Literal["fake", "replay"] = "fake"
-    decoder: Literal["keyboard"] = "keyboard"
+    eeg: Literal["fake", "replay", "stream"] = "fake"
+    decoder: Literal["keyboard", "blink"] = "keyboard"
     perception: Literal["fake"] = "fake"
     planner: Literal["nemotron", "fake"] = "nemotron"
     arm: Literal["simulated", "jetson"] = "simulated"
@@ -36,6 +45,14 @@ class Settings(BaseModel):
     poll_interval: float = Field(default=0.02, gt=0, le=1)
     planner_timeout: float = Field(default=30.0, gt=0, le=120)
     planner_max_tokens: int = Field(default=4096, ge=256, le=16384)
+    stream_url: str = Field(default="http://127.0.0.1:8765/stream", min_length=1)
+    target_label: str = Field(default="sponge", min_length=1, max_length=100)
+    blink_threshold_mv: float = Field(default=300.0, gt=0)
+    blink_min_gap_s: float = Field(default=0.1, gt=0)
+    blink_max_gap_s: float = Field(default=0.8, gt=0)
+    blink_refractory_s: float = Field(default=1.5, gt=0)
+    planner_propose: PlannerOperation = PlannerOperation(reasoning=False)
+    planner_plan: PlannerOperation = PlannerOperation(reasoning=False)
 
 
 def default_config_path() -> Path:

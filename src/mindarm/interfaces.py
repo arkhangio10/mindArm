@@ -15,9 +15,9 @@ class Contract(BaseModel):
 
 
 class DecoderEvent(Contract):
-    """Zero-based selection, engagement toggle, or explicit shutdown."""
+    """Zero-based selection, target-object selection by gesture, engagement toggle, or shutdown."""
 
-    kind: Literal["SELECT", "TOGGLE_ENGAGE", "QUIT"]
+    kind: Literal["SELECT", "SELECT_TARGET", "TOGGLE_ENGAGE", "QUIT"]
     index: int | None = Field(default=None, ge=0, le=3)
 
     @model_validator(mode="after")

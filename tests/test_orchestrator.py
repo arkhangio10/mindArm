@@ -258,3 +258,33 @@ def test_failed_console_cannot_prevent_home(app: Orchestrator) -> None:
     finally:
         app._emit = lambda _: None
         app.shutdown()
+
+
+def test_gesture_selects_the_single_option_mentioning_the_target(app: Orchestrator) -> None:
+    app.settings.target_label = "bottle"
+    send(app, "SELECT_TARGET")  # Ignored in IDLE.
+    assert app.state == State.IDLE
+    engage(app)
+    send(app, "SELECT_TARGET")
+    assert app.state == State.PLANNING
+    advance(app, lambda: app.completed_cycles == 1)
+    cycle = [record for record in records(app) if record["type"] == "cycle"][0]
+    assert cycle["selection"] == 1
+    assert cycle["plan"]["primitives"][0]["object_label"] == "bottle"
+
+
+def test_gesture_is_ignored_when_the_target_is_absent_or_ambiguous(app: Orchestrator) -> None:
+    messages: list[str] = []
+    app._emit = messages.append
+    engage(app)
+    app.settings.target_label = "sponge"
+    send(app, "SELECT_TARGET")
+    assert app.state == State.SELECTING
+    app.settings.target_label = "pick up"  # Three options match.
+    send(app, "SELECT_TARGET")
+    assert app.state == State.SELECTING
+    assert [m for m in messages if m.startswith("Gesture ignored")] == [
+        "Gesture ignored: no single option mentions 'sponge'", "Gesture ignored: no single option mentions 'pick up'"]
+    assert len([r for r in records(app) if r["type"] == "gesture_ignored"]) == 2
+    send(app, "SELECT", 1)
+    assert app.state == State.PLANNING

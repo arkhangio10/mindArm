@@ -1,3 +1,5 @@
+# eeg: stream reads the live viewer; decoder: blink selects the target_label option with a
+# voluntary double blink captured by electrodes (eye movement, not brain activity). Keys still cancel.
 eeg: fake
 decoder: keyboard
 perception: fake
@@ -22,8 +24,21 @@ replay_loop: true
 record_eeg: true
 eeg_chunk_samples: 25
 poll_interval: 0.02
+stream_url: http://127.0.0.1:8765/stream
+target_label: sponge
+blink_threshold_mv: 300.0
+blink_min_gap_s: 0.1
+blink_max_gap_s: 0.8
+blink_refractory_s: 1.5
 planner_timeout: 30.0
 planner_max_tokens: 4096
+# Per-operation call options; measurements behind them are in docs/SPEC.md.
+planner_propose:
+  reasoning: false
+  strict_schema: true
+planner_plan:
+  reasoning: false
+  strict_schema: true
 
 # arm: jetson starts the arm service over SSH stdio (no port forwarding). Windows' OpenSSH is
 # named explicitly: the Git ssh found first on PATH fails over the Jetson's USB network link.
